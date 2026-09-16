@@ -42,17 +42,37 @@ class ScanTab(ttk.Frame):
         self.btn_scan = ttk.Button(top, text="开始扫描", command=self._on_scan)
         self.btn_scan.pack(side="left", padx=4)
 
-        cols = ("icon", "filename", "code", "status", "size")
-        headers = {"icon": "", "filename": "文件名", "code": "提取码",
-                   "status": "状态", "size": "大小"}
-        widths = {"icon": 40, "filename": 480, "code": 200,
-                  "status": 100, "size": 100}
+        # ---------- 表头元数据升成实例属性 ----------
+        self._HEADERS = {
+            "icon":     "",
+            "filename": "文件名",
+            "code":     "提取码",
+            "status":   "状态",
+            "size":     "大小",
+        }
+        self._WIDTHS = {
+            "icon": 40, "filename": 480, "code": 200, "status": 100, "size": 100,
+        }
+        # 每一列的排序 key：返回可比较的值
+        self._SORT_KEYS = {
+            "icon":     lambda r: 1 if r.is_extracted else 0,   # 0=✗, 1=✓
+            "status":   lambda r: 1 if r.is_extracted else 0,
+            "filename": lambda r: r.filename.lower(),
+            "code":     lambda r: r.extracted_code.lower(),
+            "size":     lambda r: r.file_size,
+        }
+        # col -> 是否降序；只保留一个活动排序列
+        self._sort_state: dict[str, bool] = {}
 
+        cols = ("icon", "filename", "code", "status", "size")
         self.tree = ttk.Treeview(self, columns=cols, show="headings", height=16)
         for c in cols:
-            self.tree.heading(c, text=headers[c])
+            self.tree.heading(
+                c, text=self._HEADERS[c],
+                command=lambda col=c: self._sort_by(col),
+            )
             self.tree.column(
-                c, width=widths[c],
+                c, width=self._WIDTHS[c],
                 anchor="center" if c == "icon" else "w",
                 stretch=(c == "filename"),
             )
@@ -66,6 +86,40 @@ class ScanTab(ttk.Frame):
         ttk.Label(self, text="日志:").pack(anchor="w")
         self.log = tk.Text(self, height=8, wrap="none", state="disabled")
         self.log.pack(fill="both")
+
+    # ---------- 排序 ----------
+    def _sort_by(self, col: str) -> None:
+        """点击表头切换排序列与方向。"""
+        if self._scanning or not self._results:
+            return
+
+        # 首次点某列：升序；再次点同一列：反转
+        if col in self._sort_state:
+            reverse = not self._sort_state[col]
+        else:
+            reverse = False
+
+        self._results.sort(key=self._SORT_KEYS[col], reverse=reverse)
+
+        # 只保留一个活动排序列；避免多列状态叠加造成歧义
+        self._sort_state = {col: reverse}
+
+        self._redraw()
+        self._update_headers()
+
+    def _update_headers(self) -> None:
+        active = next(iter(self._sort_state), None)
+        reverse = self._sort_state.get(active, False) if active else False
+        for c, base in self._HEADERS.items():
+            text = base
+            if c == active:
+                text += " ▼" if reverse else " ▲"
+            self.tree.heading(c, text=text)
+
+    def _redraw(self) -> None:
+        self.tree.delete(*self.tree.get_children())
+        for r in self._results:
+            self._insert_row(r)
 
     def _attach_logger(self) -> None:
         handler = QueueLogHandler(self._q)
@@ -104,6 +158,8 @@ class ScanTab(ttk.Frame):
         self.tree.delete(*self.tree.get_children())
         self._clear_log()
         self._results = []
+        self._sort_state = {}          # ← 新增
+        self._update_headers()          # ← 恢复表头（去掉 ▲▼）
         self.stats_var.set("扫描中…")
         self.app.set_status("正在扫描…")
         self._scanning = True
@@ -123,8 +179,7 @@ class ScanTab(ttk.Frame):
                 recursive=cfg.recursive_processing,
                 progress=lambda r: self._q.put(("row", r)),
             )
-            self._results = results
-
+            
             base = cfg.output_directory or str(log_dir())
             run_dir = make_run_directory(base)
             save_json(results, run_dir / cfg.output_filename)
@@ -175,6 +230,9 @@ class ScanTab(ttk.Frame):
             self.stats_var.set("扫描失败")
             self.app.set_status("就绪")
             return
+
+        self._results = results
+        
         # —— 记住本次使用的目录 ——
         self._remember_current_dir()
 

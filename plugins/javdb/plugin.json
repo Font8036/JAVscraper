@@ -1,0 +1,13 @@
+{
+  "name": "JavDB 刮削",
+  "version": "1.0.0",
+  "entry": "tab:JavdbPlugin",
+  "description": "从 javdb 抓取元数据并生成带封面的 Excel 报告",
+  "dependencies": [
+    "playwright",
+    "pandas",
+    "xlsxwriter",
+    "httpx",
+    "Pillow"
+  ]
+}

@@ -25,12 +25,12 @@ class JavdbConfig:
     show_browser: bool = True
     browser_channel: str = "msedge"
     request_delay: float = 1.0
-    page_timeout: int = 60000            # 毫秒
-    max_retries: int = 2
+    page_timeout: int = 30000            # 毫秒
+    max_retries: int = 1
 
     # 行为开关
-    skip_existing_covers: bool = False
-    save_state_on_exit: bool = False
+    skip_existing_covers: bool = True
+    save_state_on_exit: bool = True
 
     @classmethod
     def load(cls, path: Path) -> "JavdbConfig":

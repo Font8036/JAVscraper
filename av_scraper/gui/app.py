@@ -43,9 +43,9 @@ class App(tk.Tk):
         self.move_tab = MoveTab(nb, self)
         self.config_tab = ConfigTab(nb, self)
         # self.notebook = nb
-        nb.add(self.scan_tab, text="① 扫描")
-        nb.add(self.move_tab, text="② 移动")
-        nb.add(self.config_tab, text="③ 配置")
+        nb.add(self.scan_tab, text="1-扫描")
+        nb.add(self.move_tab, text="2-移动")
+        nb.add(self.config_tab, text="3-配置")
 
         self._load_plugins(nb)   # ★
 
@@ -113,7 +113,7 @@ class App(tk.Tk):
                 continue
 
             if frame is not None:
-                notebook.add(frame, text=f"{tab_index} {plugin.name}")
+                notebook.add(frame, text=f"{tab_index}-{plugin.name}")
                 tab_index += 1
 
     def _make_plugin_error_tab(self, spec, extra: str = ""):

@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import json
 import asyncio
 import queue
 import sys
@@ -72,8 +73,20 @@ class JavdbPlugin:
             paths, "输出 CSV:", "save", ".csv")
         self._var_excel = self._make_path_row(
             paths, "输出 Excel:", "save", ".xlsx")
-        self._var_state = self._make_path_row(
-            paths, "登录状态:", "save", ".json")
+        # 登录状态行（多一个"导入"按钮）
+        state_row = ttk.Frame(paths); state_row.pack(fill="x", pady=2)
+        ttk.Label(state_row, text="登录状态:", width=14, anchor="e").pack(side="left")
+        self._var_state = tk.StringVar()
+        ttk.Entry(state_row, textvariable=self._var_state).pack(
+            side="left", fill="x", expand=True, padx=4)
+        ttk.Button(
+            state_row, text="浏览…",
+            command=lambda: self._pick_path(self._var_state, "save", ".json"),
+        ).pack(side="left")
+        ttk.Button(
+            state_row, text="导入浏览器 Cookie",
+            command=self._on_import_cookies,
+        ).pack(side="left", padx=(4, 0))
 
         # -------- 参数区 --------
         opts = ttk.LabelFrame(root, text="参数", padding=8)
@@ -260,6 +273,121 @@ class JavdbPlugin:
             return
         if p:
             var.set(p)
+
+    def _on_import_cookies(self) -> None:
+        """从浏览器扩展导出的 cookie JSON 导入，转成 Playwright storage_state。"""
+        target = self._var_state.get().strip()
+        if not target:
+            messagebox.showwarning(
+                "提示", "请先在『登录状态』里指定保存路径",
+                parent=self._parent(),
+            )
+            return
+
+        src = filedialog.askopenfilename(
+            title="选择浏览器导出的 Cookie JSON",
+            filetypes=[("JSON", "*.json"), ("所有文件", "*.*")],
+            parent=self._parent(),
+        )
+        if not src:
+            return
+
+        try:
+            raw = json.loads(Path(src).read_text(encoding="utf-8"))
+        except Exception as e:
+            messagebox.showerror("读取失败", str(e), parent=self._parent())
+            return
+
+        try:
+            cookies = self._convert_cookies(raw)
+        except ValueError as e:
+            messagebox.showerror("格式错误", str(e), parent=self._parent())
+            return
+
+        state = {"cookies": cookies, "origins": []}
+        out = Path(target)
+        try:
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text(
+                json.dumps(state, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except OSError as e:
+            messagebox.showerror("保存失败", str(e), parent=self._parent())
+            return
+
+        # 顺手把路径写回 UI 和插件配置
+        self._var_state.set(str(out))
+        try:
+            self._config = self._ui_to_config()
+            self._config.save(self._config_path)
+        except OSError:
+            pass
+
+        messagebox.showinfo(
+            "导入成功",
+            f"已导入 {len(cookies)} 条 cookie。\n\n保存到：\n{out}",
+            parent=self._parent(),
+        )
+
+    @staticmethod
+    def _convert_cookies(raw) -> list[dict]:
+        """接受三种输入：
+        1. 已经是 {"cookies": [...], ...} 的 storage_state
+        2. EditThisCookie / Cookie-Editor 导出的 list
+        3. 只有一个 cookie 的 dict
+        返回统一的 Playwright cookie 列表。
+        """
+        # 已经是 storage_state
+        if isinstance(raw, dict) and "cookies" in raw:
+            return list(raw.get("cookies", []))
+
+        # 单条 cookie
+        if isinstance(raw, dict) and "name" in raw:
+            raw = [raw]
+
+        if not isinstance(raw, list):
+            raise ValueError("无法识别的 cookie 文件格式（既不是 list 也没有 cookies 字段）")
+
+        SAMESITE_MAP = {
+            "no_restriction": "None",
+            "none": "None",
+            "lax": "Lax",
+            "strict": "Strict",
+            "unspecified": "Lax",
+        }
+
+        cookies: list[dict] = []
+        for c in raw:
+            name = c.get("name")
+            value = c.get("value")
+            if not name or value is None:
+                continue
+
+            cookie = {
+                "name": name,
+                "value": str(value),
+                "domain": c.get("domain", ""),
+                "path": c.get("path", "/"),
+                "httpOnly": bool(c.get("httpOnly", False)),
+                "secure": bool(c.get("secure", False)),
+                "sameSite": SAMESITE_MAP.get(
+                    str(c.get("sameSite", "Lax")).lower(), "Lax",
+                ),
+            }
+
+            # expirationDate 是 EditThisCookie 的字段，
+            # 有些扩展用 expires，两者都兼容
+            exp = c.get("expirationDate") or c.get("expires")
+            if exp:
+                try:
+                    cookie["expires"] = int(float(exp))
+                except (TypeError, ValueError):
+                    pass
+
+            cookies.append(cookie)
+
+        return cookies
 
     # ============================================================
     # 爬取

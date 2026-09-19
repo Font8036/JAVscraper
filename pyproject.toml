@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "javscraper"
-version = "0.2.1"
+version = "0.2.2"
 description = "文件名刮削与文件整理工具，支持插件扩展"
 readme = "readme.md"
 requires-python = ">=3.9"

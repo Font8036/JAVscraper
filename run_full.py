@@ -20,7 +20,7 @@ except ImportError:
 # 打包命令
 # conda activate private
 # cd /d C:\Disk\C\applicationdata\coding\JAVscraper
-# pyinstaller -D -w -n av-scraper-full --paths . --paths plugins --add-data "plugins;plugins" --collect-all playwright --clean run_full.py
+# pyinstaller -D -w -n JAVscraper_full_v0.2.2_win64 --paths . --paths plugins --add-data "plugins;plugins" --collect-all playwright --clean run_full.py
 
 from av_scraper.__main__ import main
 

@@ -17,7 +17,7 @@ except ImportError:
 from .parse import parse_row
 
 MAX_ROW_HEIGHT_PT = 409.5
-B_COL_WIDTH_CHARS = 21.86
+B_COL_WIDTH_CHARS = 22
 
 
 def build_excel(
@@ -61,15 +61,15 @@ def build_excel(
         })
 
         column_widths = {
-            0: 15, 1: B_COL_WIDTH_CHARS, 2: 35, 3: 20,
-            4: 12, 5: 3, 6: 25, 7: 3, 8: 50,
+            0: 12.32, 1: B_COL_WIDTH_CHARS, 2: 35, 3: 20,
+            4: 3, 5: 12, 6: 25, 7: 3, 8: 50,
         }
         for c, w in column_widths.items():
             worksheet.set_column(c, c, w)
 
         col_width_px = B_COL_WIDTH_CHARS * 7 + 5
 
-        headers = ["番号", "封面", "名称", "演员", "评分", "", "类别", "", "评论"]
+        headers = ["番号", "封面", "名称", "演员", "", "评分", "类别", "", "评论"]
         for c, h in enumerate(headers):
             worksheet.write(0, c, h, header_fmt)
 
@@ -78,14 +78,14 @@ def build_excel(
             worksheet.write(row_idx, 0, rec["番号"] or "", normal_fmt)
             worksheet.write(row_idx, 2, rec["名称"] or "", normal_fmt)
             worksheet.write(row_idx, 3, rec["演员"] or "", normal_fmt)
+            worksheet.write(row_idx, 4, "", normal_fmt)
 
             if rec["评分"] and rec["链接"]:
                 worksheet.write_url(
-                    row_idx, 4, rec["链接"], hyperlink_fmt, rec["评分"])
+                    row_idx, 5, rec["链接"], hyperlink_fmt, rec["评分"])
             else:
-                worksheet.write(row_idx, 4, rec["评分"] or "", normal_fmt)
+                worksheet.write(row_idx, 5, rec["评分"] or "", normal_fmt)
 
-            worksheet.write(row_idx, 5, "", normal_fmt)
             worksheet.write(row_idx, 6, rec["类别"] or "", normal_fmt)
             worksheet.write(row_idx, 7, "", normal_fmt)
             worksheet.write(row_idx, 8, rec["评论"] or "", normal_fmt)

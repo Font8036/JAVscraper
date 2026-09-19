@@ -418,6 +418,7 @@ class JavdbPlugin:
 
         try:
             targets = load_targets(self._config.input_excel)
+            self._append_log(f"读取到 {len(targets)} 个有效番号")
         except Exception as e:
             messagebox.showerror(
                 "读取失败", f"{e}", parent=self._parent())

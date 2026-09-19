@@ -8,22 +8,27 @@
 
 from __future__ import annotations
 
+import logging
 import asyncio
 import os
 import threading
 from pathlib import Path
 from typing import Callable, Optional
-
+from pathlib import Path
 import httpx
 import pandas as pd
 from playwright.async_api import async_playwright
 
 from .config import JavdbConfig
 
+logger = logging.getLogger(__name__)
+
 LogFn = Callable[[str], None]
 # (idx0, keyword, name, status)
 ProgressFn = Callable[[int, str, str, str], None]
 
+# 这些字符串（不区分大小写）都视为空值
+_INVALID_TOKENS = {"", "nan", "null", "none", "na", "n/a", "nat", "-"}
 
 def _noop_log(msg: str) -> None:
     pass
@@ -33,9 +38,33 @@ def _noop_log(msg: str) -> None:
 # 读番号清单
 # ============================================================
 def load_targets(excel_path: str | Path) -> list[str]:
+    """读取 Excel 第一列作为番号列表。
+
+    会跳过：
+    - 真正的 NaN
+    - 空字符串 / 纯空白
+    - 字符串形式的 "nan" / "null" / "none" 等
+    """
     df = pd.read_excel(excel_path, header=None, dtype=str)
-    targets = df.iloc[:, 0].dropna().astype(str).str.strip().tolist()
-    return [t for t in targets if t]
+    raw_count = len(df)
+
+    targets: list[str] = []
+    skipped = 0
+    for v in df.iloc[:, 0]:
+        if pd.isna(v):
+            skipped += 1
+            continue
+        s = str(v).strip()
+        if s.lower() in _INVALID_TOKENS:
+            skipped += 1
+            continue
+        targets.append(s)
+
+    logger.info(
+        "读取 Excel：原始 %d 行，有效 %d 个，跳过 %d 行",
+        raw_count, len(targets), skipped,
+    )
+    return targets
 
 
 # ============================================================

@@ -10,3 +10,10 @@ config.json
 log/
 .vscode/
 *.spec
+# 生成的文件
+files/
+files_*/
+test_*/
+
+# 保留脚本本身
+!gen_test_files.py

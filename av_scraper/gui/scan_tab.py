@@ -24,7 +24,8 @@ class ScanTab(ttk.Frame):
         self._q: queue.Queue[Any] = queue.Queue()
         self._scanning = False
         self._results: list[ScrapeResult] = []
-
+        self._total_files = 0          # ← 新增
+        self._scanned_count = 0        # ← 新增
         self._build()
         self._attach_logger()
         self.sync_from_config()
@@ -160,7 +161,7 @@ class ScanTab(ttk.Frame):
         self._results = []
         self._sort_state = {}          # ← 新增
         self._update_headers()          # ← 恢复表头（去掉 ▲▼）
-        self.stats_var.set("扫描中…")
+        self.stats_var.set("正在统计文件数…")
         self.app.set_status("正在扫描…")
         self._scanning = True
         self.btn_scan.configure(state="disabled")
@@ -178,6 +179,7 @@ class ScanTab(ttk.Frame):
                 directory,
                 recursive=cfg.recursive_processing,
                 progress=lambda r: self._q.put(("row", r)),
+                on_total=lambda n: self._q.put(("total", n)),   # ← 新增
             )
             
             base = cfg.output_directory or str(log_dir())
@@ -201,7 +203,9 @@ class ScanTab(ttk.Frame):
                     self._append_log(item)
                     continue
                 kind, payload = item
-                if kind == "row":
+                if kind == "total":
+                    self._on_total(payload)
+                elif kind == "row":
                     self._insert_row(payload)
                 elif kind == "json":
                     self.app.move_tab.set_input_json(payload)
@@ -211,6 +215,20 @@ class ScanTab(ttk.Frame):
         except queue.Empty:
             pass
         self.after(80, self._poll)
+
+    def _on_total(self, total: int) -> None:
+        self._total_files = total
+        self._scanned_count = 0
+        self._update_progress()
+
+    def _update_progress(self) -> None:
+        total = self._total_files
+        scanned = self._scanned_count
+        if total > 0:
+            pct = scanned / total * 100
+            self.stats_var.set(f"扫描中 {scanned}/{total}（{pct:.1f}%）")
+        else:
+            self.stats_var.set("未发现可扫描的文件")
 
     def _insert_row(self, r: ScrapeResult) -> None:
         icon = "✓" if r.is_extracted else "✗"
@@ -222,6 +240,8 @@ class ScanTab(ttk.Frame):
                     human_size(r.file_size)),
             tags=(tag,),
         )
+        self._scanned_count += 1
+        self._update_progress()
 
     def _finish(self, results: Optional[list[ScrapeResult]]) -> None:
         self._scanning = False

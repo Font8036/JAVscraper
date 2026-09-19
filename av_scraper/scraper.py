@@ -118,6 +118,7 @@ class CodeExtractor:
         directory: str | Path,
         recursive: Optional[bool] = None,
         progress: Optional[Callable[[ScrapeResult], None]] = None,
+        on_total: Optional[Callable[[int], None]] = None,
     ) -> list[ScrapeResult]:
         directory = Path(directory)
         if not directory.exists():
@@ -127,8 +128,21 @@ class CodeExtractor:
             recursive = self.config.recursive_processing
         iterator = directory.rglob("*") if recursive else directory.glob("*")
 
-        results: list[ScrapeResult] = []
+        # 先一次性收集候选文件，得到总数
+        candidates: list[Path] = []
         for path in iterator:
+            try:
+                if path.is_file() and self.is_supported(path.name):
+                    candidates.append(path)
+            except OSError:
+                continue
+
+        if on_total is not None:
+            on_total(len(candidates))
+
+
+        results: list[ScrapeResult] = []
+        for path in candidates:
             if not path.is_file() or not self.is_supported(path.name):
                 continue
             try:

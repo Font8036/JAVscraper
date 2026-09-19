@@ -24,8 +24,10 @@ from .config import JavdbConfig
 logger = logging.getLogger(__name__)
 
 LogFn = Callable[[str], None]
-# (idx0, keyword, name, status)
-ProgressFn = Callable[[int, str, str, str], None]
+ProgressFn = Callable[[int, str, Optional[dict], str], None]
+# (idx0, keyword, payload, status)
+# payload = {"fanhao": ..., "name": ...} 或 None
+
 
 # 这些字符串（不区分大小写）都视为空值
 _INVALID_TOKENS = {"", "nan", "null", "none", "na", "n/a", "nat", "-"}
@@ -109,12 +111,12 @@ async def scrape_javdb(
                 if stop_event and stop_event.is_set():
                     on_log("收到停止信号，中断爬取")
                     if on_progress:
-                        on_progress(idx, keyword, "", "stopped")
+                        on_progress(idx, keyword, None, "stopped")
                     break
 
                 on_log(f"\n===== [{idx+1}/{total}] 正在处理: {keyword} =====")
                 if on_progress:
-                    on_progress(idx, keyword, "", "running")
+                    on_progress(idx, keyword, None, "running")
 
                 success = False
                 last_error = ""
@@ -126,7 +128,12 @@ async def scrape_javdb(
                         table_data.append(record)
                         on_log(f"抓取成功: {record['番号']} - {record['名称']}")
                         if on_progress:
-                            on_progress(idx, keyword, record["名称"], "ok")
+                                on_progress(
+                                idx, keyword,
+                                {"fanhao": record["番号"],
+                                 "name": record["名称"]},
+                                "ok",
+                            )
                         success = True
                         break
                     except Exception as e:
@@ -139,7 +146,7 @@ async def scrape_javdb(
 
                 if not success and not (stop_event and stop_event.is_set()):
                     if on_progress:
-                        on_progress(idx, keyword, "", f"failed:{last_error}")
+                        on_progress(idx, keyword, None, f"failed:{last_error}")
 
                 # 回到搜索页
                 try:
@@ -262,6 +269,7 @@ async def _process_one(
                 on_log(f"封面下载异常: {e}")
 
     return {
+        "目标番号": keyword,          # ← 新增
         "链接": page.url,
         "番号": fanhao,
         "名称": name,

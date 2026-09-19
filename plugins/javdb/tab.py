@@ -20,6 +20,7 @@ from typing import Any, Optional
 
 from av_scraper.plugin_api import PluginContext
 
+from .parse import is_matched
 from .config import JavdbConfig
 from .fetch import load_targets, save_csv, scrape_javdb
 from .report import build_excel
@@ -155,17 +156,17 @@ class JavdbPlugin:
             side="left", padx=12)
 
         # -------- 进度表格 --------
-        cols = ("fanhao", "name", "status")
+        cols = ("target", "fanhao", "name", "status")
         self._tree = ttk.Treeview(
             root, columns=cols, show="headings", height=10)
-        for c, t, w in zip(
-            cols, ("番号", "名称", "状态"), (140, 500, 160),
-        ):
+        headers = ("目标番号", "实际番号", "名称", "状态")
+        widths = (140, 140, 420, 180)
+        for c, t, w in zip(cols, headers, widths):
             self._tree.heading(c, text=t)
-            self._tree.column(c, width=w, anchor="w",
-                              stretch=(c == "name"))
+            self._tree.column(c, width=w, anchor="w", stretch=(c == "name"))
         self._tree.tag_configure("ok", foreground="#1a7f37")
         self._tree.tag_configure("running", foreground="#0a58ca")
+        self._tree.tag_configure("warn", foreground="#c77b00")
         self._tree.tag_configure("failed", foreground="#c0392b")
         self._tree.tag_configure("stopped", foreground="#999999")
         self._tree.pack(fill="both", expand=True, pady=(8, 0))
@@ -432,7 +433,7 @@ class JavdbPlugin:
         for i, t in enumerate(targets):
             self._tree.insert(
                 "", "end", iid=f"row_{i}",
-                values=(t, "—", "等待"), tags=("",),
+                values=(t, "—", "—", "等待"), tags=("",),
             )
 
         self._stop_event.clear()
@@ -552,31 +553,43 @@ class JavdbPlugin:
             self._root.after(80, self._poll)
 
     def _update_row(
-        self, idx0: int, keyword: str, name: str, status: str,
+        self, idx0: int, keyword: str, payload, status: str,
     ) -> None:
         iid = f"row_{idx0}"
         if not self._tree.exists(iid):
             return
 
         current = self._tree.item(iid, "values")
-        display_name = name or (current[1] if len(current) > 1 else "—")
-        if display_name == "":
-            display_name = "—"
+        # current 现在有 4 个值：target, fanhao, name, status
+        target = keyword
+        fanhao = "—"
+        name = "—"
+        if status == "ok" and isinstance(payload, dict):
+            fanhao = payload.get("fanhao", "") or"—"
+            name = payload.get("name", "") or "—"
+            display_name = name or "—"
 
-        if status.startswith("failed"):
+            # ★ 用刮到的番号做比对，不是标题
+            if is_matched(keyword, payload.get("fanhao", "")):
+                text, tag = "✓ 完成", "ok"
+            else:
+                text, tag = f"⚠ 完成（番号不同）", "warn"
+        elif status.startswith("failed"):
             err = status[len("failed:"):].strip()
             text = f"✗ 失败" + (f"：{err[:30]}" if err else "")
             tag = "failed"
         elif status == "running":
             text, tag = "进行中…", "running"
-        elif status == "ok":
-            text, tag = "✓ 完成", "ok"
         elif status == "stopped":
             text, tag = "○ 已停止", "stopped"
         else:
             text, tag = status, ""
 
-        self._tree.item(iid, values=(keyword, display_name, text), tags=(tag,))
+        self._tree.item(
+            iid, 
+            values=(keyword, fanhao, name, text), 
+            tags=(tag,)
+        )
         self._tree.see(iid)
 
         try:

@@ -106,6 +106,7 @@ def parse_row(row: dict) -> dict:
     info_clean = clean_text(row.get("信息", ""))
     comment_clean = clean_text(row.get("评论", ""))
     return {
+        "目标番号": row.get("目标番号", ""),      # ← 新增
         "链接": row.get("链接", ""),
         "番号": row.get("番号", ""),
         "名称": row.get("名称", ""),
@@ -114,3 +115,18 @@ def parse_row(row: dict) -> dict:
         "类别": extract_category(info_clean),
         "评论": extract_comments(comment_clean),
     }
+
+def normalize_code(code: str) -> str:
+    """把番号归一化后比较：去掉分隔符、大写、去掉 FC2 的 PPV。"""
+    if not code:
+        return ""
+    s = str(code).upper()
+    s = s.replace("FC2PPV", "FC2").replace("FC2-PPV", "FC2")
+    # 去掉 - 和 _
+    s = s.replace("-", "").replace("_", "")
+    return s
+
+
+def is_matched(target: str, scraped: str) -> bool:
+    """判断刮到的番号是否与目标番号一致。"""
+    return bool(target) and normalize_code(target) == normalize_code(scraped)

@@ -15,6 +15,7 @@ except ImportError:
     HAS_PIL = False
 
 from .parse import parse_row
+from .parse import is_matched
 
 MAX_ROW_HEIGHT_PT = 409.5
 B_COL_WIDTH_CHARS = 22
@@ -61,34 +62,56 @@ def build_excel(
         })
 
         column_widths = {
-            0: 12.32, 1: B_COL_WIDTH_CHARS, 2: 35, 3: 20,
-            4: 3, 5: 12, 6: 25, 7: 3, 8: 50,
+            0: 12.32,   # 目标番号
+            1: 12.32,   # 刮到的番号
+            2: B_COL_WIDTH_CHARS,   # 封面
+            3: 35,   # 名称
+            4: 20,   # 演员
+            5: 3,    # 空
+            6: 12,   # 评分
+            7: 25,   # 类别
+            8: 3,    # 空
+            9: 50,   # 评论
         }
         for c, w in column_widths.items():
             worksheet.set_column(c, c, w)
 
         col_width_px = B_COL_WIDTH_CHARS * 7 + 5
 
-        headers = ["番号", "封面", "名称", "演员", "", "评分", "类别", "", "评论"]
+        headers = ["目标番号", "番号", "封面", "名称", "演员", "", "评分", "类别", "", "评论"]
         for c, h in enumerate(headers):
             worksheet.write(0, c, h, header_fmt)
 
+        mismatch_fmt = workbook.add_format({
+            "valign": "vcenter", "font_color": "red", "bold": True,
+        })
+
         for i, rec in enumerate(records):
             row_idx = i + 1
-            worksheet.write(row_idx, 0, rec["番号"] or "", normal_fmt)
-            worksheet.write(row_idx, 2, rec["名称"] or "", normal_fmt)
-            worksheet.write(row_idx, 3, rec["演员"] or "", normal_fmt)
-            worksheet.write(row_idx, 4, "", normal_fmt)
+
+            # ---- 目标番号：与刮到的不一致时红色加粗 ----
+            target = rec.get("目标番号", "")
+            scraped = rec.get("番号", "")
+            target_fmt = (
+                mismatch_fmt if target and scraped and not is_matched(target, scraped)
+                else normal_fmt
+            )
+            worksheet.write(row_idx, 0, target or "", target_fmt)
+            # ---- 刮到的番号 ----
+            worksheet.write(row_idx, 1, rec["番号"] or "", normal_fmt)
+            worksheet.write(row_idx, 3, rec["名称"] or "", normal_fmt)
+            worksheet.write(row_idx, 4, rec["演员"] or "", normal_fmt)
+            worksheet.write(row_idx, 5, "", normal_fmt)
 
             if rec["评分"] and rec["链接"]:
                 worksheet.write_url(
-                    row_idx, 5, rec["链接"], hyperlink_fmt, rec["评分"])
+                    row_idx, 6, rec["链接"], hyperlink_fmt, rec["评分"])
             else:
-                worksheet.write(row_idx, 5, rec["评分"] or "", normal_fmt)
+                worksheet.write(row_idx, 6, rec["评分"] or "", normal_fmt)
 
-            worksheet.write(row_idx, 6, rec["类别"] or "", normal_fmt)
-            worksheet.write(row_idx, 7, "", normal_fmt)
-            worksheet.write(row_idx, 8, rec["评论"] or "", normal_fmt)
+            worksheet.write(row_idx, 7, rec["类别"] or "", normal_fmt)
+            worksheet.write(row_idx, 8, "", normal_fmt)
+            worksheet.write(row_idx, 9, rec["评论"] or "", normal_fmt)
 
             fanhao = rec["番号"]
             if not fanhao:
@@ -103,7 +126,7 @@ def build_excel(
             worksheet.set_row(row_idx, row_height_pt)
 
             try:
-                worksheet.embed_image(row_idx, 1, str(img_path))
+                worksheet.embed_image(row_idx, 2, str(img_path))
             except Exception as e:
                 log(f"嵌入图片 {fanhao} 失败: {e}")
 

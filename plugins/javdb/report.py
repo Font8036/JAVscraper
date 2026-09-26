@@ -31,6 +31,7 @@ def build_excel(
     log = on_log or (lambda s: None)
 
     df = pd.read_csv(input_csv, encoding="utf-8-sig", dtype=str)
+    df = df.fillna("")                          # ← 新增：把 NaN 全部转成空字符串
     log(f"成功读取数据，共 {len(df)} 条记录")
     df = df.reset_index(drop=True)
 
@@ -61,7 +62,7 @@ def build_excel(
             "underline": 1,
         })
         # ---- 整行填充色：目标番号与刮到的番号不一致时使用 ----
-        MISMATCH_BG = "#FFC7CE"     # 浅红
+        MISMATCH_BG = "#FFFFBE"    # 浅黄
         mismatch_cell_fmt = workbook.add_format({
             "valign": "vcenter",
             "bg_color": MISMATCH_BG,
@@ -71,6 +72,12 @@ def build_excel(
             "bg_color": MISMATCH_BG,
             "font_color": "blue",
             "underline": 1,
+        })
+        # ---- 整行填充色：刮削失败的行 ----
+        FAILED_BG = "#FFC7CE"     # 浅红
+        failed_cell_fmt = workbook.add_format({
+            "valign": "vcenter",
+            "bg_color": FAILED_BG,
         })
 
         column_widths = {
@@ -103,12 +110,20 @@ def build_excel(
 
             target = rec.get("目标番号", "") or ""
             scraped = rec.get("番号", "") or ""
+            failed = bool(target and not scraped)
             mismatched = bool(target and scraped and not is_matched(target, scraped))
 
-            cell_fmt = mismatch_cell_fmt if mismatched else normal_fmt
-            link_fmt = mismatch_link_fmt if mismatched else hyperlink_fmt
+            if failed:
+                cell_fmt = failed_cell_fmt
+                link_fmt = failed_cell_fmt
+            elif mismatched:
+                cell_fmt = mismatch_cell_fmt
+                link_fmt = mismatch_link_fmt
+            else:
+                cell_fmt = normal_fmt
+                link_fmt = hyperlink_fmt
 
-            # 0 目标番号
+            # 0 目标番号 —— 失败行只写这一列
             worksheet.write(row_idx, 0, target, cell_fmt)
             # 1 刮到的番号
             worksheet.write(row_idx, 1, scraped, cell_fmt)

@@ -147,6 +147,15 @@ async def scrape_javdb(
                             on_log(f"处理 {keyword} 失败: {e}")
 
                 if not success and not (stop_event and stop_event.is_set()):
+                    # 失败也记一条，保证最终报告里能看到这个番号
+                    table_data.append({
+                        "目标番号": keyword,
+                        "链接": "",
+                        "番号": "",
+                        "名称": "",
+                        "信息": "",
+                        "评论": "",
+                    })
                     if on_progress:
                         on_progress(idx, keyword, None, f"failed:{last_error}")
 

@@ -1,6 +1,6 @@
 # AV 文件名刮削与整理工具 — 开发者文档
 
-面向想阅读源码、扩展功能或自行构建的开发者。普通使用请看 **[README.md](README.md)**。
+面向想阅读源码、扩展功能或自行构建的开发者。普通使用请看 **[README.md](README.md)**；具体插件的使用和实现见各插件目录下的文档。
 
 ---
 
@@ -19,14 +19,17 @@
 - [插件系统](#插件系统)
   - [接口约定](#接口约定)
   - [加载流程](#加载流程)
+  - [plugin.json 格式](#pluginjson-格式)
+  - [插件文档规范](#插件文档规范)
   - [开发一个新插件](#开发一个新插件)
-- [内置插件：JavDB 刮削](#内置插件javdb-刮削)
+  - [内置插件一览](#内置插件一览)
 - [构建与分发](#构建与分发)
   - [核心版](#核心版)
   - [完整版](#完整版)
 - [测试](#测试)
 - [扩展点](#扩展点)
 - [已知限制](#已知限制)
+- [版本与兼容](#版本与兼容)
 
 ---
 
@@ -45,27 +48,38 @@
 ```
 JAVscraper/
 ├── pyproject.toml
-├── README.md                       # 面向用户
-├── DEVELOPER.md                    # 面向开发者（本文件）
+├── README.md                       # 面向用户（核心功能）
+├── DEVELOPER.md                    # 面向开发者（核心 + 插件机制）
 ├── .gitignore
 ├── .vscode/
 │   └── settings.json               # 建议将 "plugins" 加入 analysis.extraPaths
 │
 ├── run.py                          # 核心版入口
-├── run_full.py                     # 完整版入口（内置 javdb 插件）
+├── run_full.py                     # 完整版入口（内置插件一起打包）
 │
 ├── config.json                     # 首次运行自动生成
 ├── log/                            # 输出与日志，自动生成
 │
 ├── plugins/                        # 插件目录（用户可写）
-│   └── javdb/
+│   ├── javdb/                      # 内置插件：JavDB 刮削
+│   │   ├── plugin.json
+│   │   ├── README.md               # ★ 插件文档
+│   │   ├── __init__.py
+│   │   ├── config.py
+│   │   ├── fetch.py
+│   │   ├── parse.py
+│   │   ├── report.py
+│   │   └── tab.py
+│   └── jellyfin_nfo/               # 内置插件：Jellyfin NFO
 │       ├── plugin.json
-│       ├── javdb_config.json       # 完整版插件的配置，自动生成
+│       ├── README.md               # ★ 插件文档
 │       ├── __init__.py
 │       ├── config.py
-│       ├── fetch.py
-│       ├── parse.py
-│       ├── report.py
+│       ├── parser.py
+│       ├── excel_reader.py
+│       ├── image_extractor.py
+│       ├── nfo_builder.py
+│       ├── organizer.py
 │       └── tab.py
 │
 ├── test/                           # 测试与生成脚本
@@ -91,6 +105,8 @@ JAVscraper/
         └── config_tab.py
 ```
 
+每个插件目录下都有独立的 `README.md`，描述该插件的功能、依赖、配置项和使用方式。核心文档不重复这些细节。
+
 ---
 
 ## 环境搭建
@@ -109,11 +125,17 @@ pip install -e .
 pip install -e ".[dev]"
 ```
 
-### 完整版额外依赖
+### 插件额外依赖
+
+每个插件的依赖不同，见插件目录下的 `README.md`。举两个例子：
 
 ```bash
+# JavDB 刮削插件
 pip install playwright pandas xlsxwriter httpx Pillow
 playwright install msedge
+
+# Jellyfin NFO 插件
+pip install openpyxl
 ```
 
 ### VSCode 建议配置
@@ -322,7 +344,7 @@ def log_dir() -> Path: ...
 
 ### Tab 通用模式
 
-所有 Tab 都遵循同一套并发模型：
+所有 Tab（核心的和插件的）都遵循同一套并发模型：
 
 ```
 用户点击 → 主线程禁用按钮 → 启动后台线程 →
@@ -398,14 +420,30 @@ class Plugin(Protocol):
 }
 ```
 
+### 插件文档规范
+
+每个插件**必须在自己的目录下放一个 `README.md`**，包含以下内容：
+
+| 章节 | 内容 |
+|---|---|
+| 功能 | 一句话说明 |
+| 依赖 | 需要 `pip install` 什么、需要什么前置条件（如 Playwright 浏览器） |
+| 配置项 | 表格列出所有配置字段、类型、默认值、说明 |
+| 使用步骤 | 用户从零到成功的完整流程 |
+| 常见问题 | 该插件特有的疑难 |
+| 实现要点（可选） | 数据流、关键文件职责，供开发者参考 |
+
+核心的 `README.md` 和 `DEVELOPER.md` 只提供**插件一览表**，链接到各自目录下的 `README.md`，不重复具体插件的细节。
+
 ### 开发一个新插件
 
 ```
 plugins/
 └── my_plugin/
     ├── plugin.json
+    ├── README.md       # 文档（必须）
     ├── __init__.py
-    ├── tab.py
+    ├── tab.py          # GUI 入口，实现 Plugin 协议
     └── config.py       # 可选，插件自己的配置
 ```
 
@@ -445,59 +483,12 @@ class MyPlugin:
 - 修改核心界面（只能新增标签页）
 - 与其它插件通信（无约定机制）
 
----
+### 内置插件一览
 
-## 内置插件：JavDB 刮削
-
-### 文件职责
-
-| 文件 | 职责 |
-|---|---|
-| `config.py` | `JavdbConfig` 数据类，读写 `config.json` |
-| `fetch.py` | Playwright 爬取 + CSV 导出 |
-| `parse.py` | 演员 / 评分 / 类别 / 评论的字段提取（纯函数） |
-| `report.py` | 生成带封面嵌入的 Excel |
-| `tab.py` | GUI，实现 Plugin 协议 |
-
-### 数据流
-
-```
-input_excel(单列番号)
-    │ load_targets()
-    ▼
-targets: list[str]
-    │ scrape_javdb()  ──► csv ──► parse_row()  ──► report.build_excel()
-    ▼
-records: list[dict]
-    │ save_csv()
-    ▼
-output_csv
-    │ build_excel()
-    ▼
-output_excel
-```
-
-### 字段约定
-
-爬取阶段的 `record` 字段（**供 report 使用**）：
-
-| 字段 | 说明 |
-|---|---|
-| `目标番号` | 用户输入的 |
-| `链接` | 详情页 URL |
-| `番号` | 页面抓到的 |
-| `名称` | 标题 |
-| `信息` | 详情页文本（供 parse 二次提取） |
-| `评论` | 评论文本 |
-
-### 关键实现细节
-
-1. **进度回调** 传的是 `{"fanhao": ..., "name": ...}` 的字典，不是裸字符串——这样 GUI 能拿到实际番号做比对；
-2. **`is_matched(target, scraped)`** 做归一化比较：去掉 `-` `_`、大写、`FC2PPV` → `FC2`；
-3. **配置路径解析** `_resolve_config_path`：
-   - 源码运行：`plugins/javdb/config.json`
-   - 完整版 exe：`_MEIPASS` 只读，改写到 exe 同级 `javdb_config.json`；
-4. **Playwright headless 由 `show_browser` 控制**，默认 `True`，因为 javdb 有 Cloudflare，无头模式容易卡验证。
+| 插件 | 功能 | 实现文档 |
+|---|---|---|
+| **JavDB 刮削** | Playwright 爬取 javdb.com，生成带封面嵌入的 Excel | [plugins/javdb/README.md](plugins/javdb/README.md) |
+| **Jellyfin NFO** | 从刮削表格提取封面，生成 Jellyfin 兼容的 `.nfo` | [plugins/jellyfin_nfo/README.md](plugins/jellyfin_nfo/README.md) |
 
 ---
 
@@ -505,12 +496,16 @@ output_excel
 
 ### 前置：确保依赖装齐
 
+打包前先在环境里装好：
+
 ```bash
 conda activate <env>
-pip install playwright pandas xlsxwriter httpx Pillow
+pip install playwright pandas xlsxwriter httpx Pillow openpyxl
 playwright install msedge
-python -c "import playwright, pandas, xlsxwriter, httpx, PIL; print('OK')"
+python -c "import playwright, pandas, xlsxwriter, httpx, PIL, openpyxl; print('OK')"
 ```
+
+`python -c` 那一步必须输出 `OK` 才能继续。
 
 ### 核心版
 
@@ -536,7 +531,7 @@ pyinstaller -D -w -n av-scraper-full ^
 | 参数 | 作用 |
 |---|---|
 | `-D` | 目录模式。单文件模式每次启动要解压 200 MB，很慢；完整版用 `-D` |
-| `--paths plugins` | 让 PyInstaller 静态分析到 `javdb` 包 |
+| `--paths plugins` | 让 PyInstaller 静态分析到插件包 |
 | `--add-data "plugins;plugins"` | 把 `plugins/` 目录打进 exe 的 `_MEIPASS`（Windows 用 `;`，Linux/macOS 用 `:`） |
 | `--collect-all playwright` | 收集 Playwright 的 Node 驱动和所有子模块 |
 
@@ -566,7 +561,7 @@ pyinstaller -F -c --debug=imports -n av-scraper-full-debug ^
 | 现象 | 原因 |
 |---|---|
 | 完整版大小和核心版一样 | 打包环境没装插件依赖，`--collect-all playwright` 静默失败 |
-| 有标签页但没有 javdb | spec 里的 `datas` 丢了 `('plugins', 'plugins')` |
+| 有标签页但没有某个插件 | spec 里的 `datas` 丢了 `('plugins', 'plugins')` |
 | 启动慢 | 用了 `-F`，改成 `-D` |
 | 杀软误报 | 常见，`-D` 模式误报率明显低于 `-F` |
 
@@ -604,7 +599,8 @@ python test/gen_test_files.py --clean
 - [ ] 移动执行：冲突策略 `skip` / `overwrite` / `rename` 行为符合预期
 - [ ] 撤回：移动后能完整还原
 - [ ] 配置保存：改前缀 → 保存 → 重开 → 生效
-- [ ] 插件加载：完整版能看到 ④ 标签页，核心版看不到
+- [ ] 插件加载：完整版能看到插件标签页，核心版看不到
+- [ ] 插件错误处理：手动删掉某个插件的依赖，应显示错误标签页而非崩溃
 
 ### 单元测试（待补充）
 
@@ -645,7 +641,7 @@ def test_extract(filename, expected):
 
 ### 加一个插件
 
-见 [开发一个新插件](#开发一个新插件)。
+见 [开发一个新插件](#开发一个新插件)。记得在插件目录下放 `README.md`。
 
 ### 换 GUI
 
@@ -681,3 +677,22 @@ results = ext.scan_directory("D:/videos")
 - **核心 API（`plugin_api.py`）以 `PluginContext` 字段为准**。如果插件要读 `app_config` 的字段，需要注意核心升级可能带来的字段变动；
 - **`plugin.json` 的 `min_core_version`** 字段已预留但未启用，将来若做兼容性检查会在此实现；
 - 主版本号变更时（如 `2.x → 3.x`），核心 API 可能不兼容，届时插件需要同步更新。
+```
+
+---
+
+## 落地清单
+
+改完后，仓库的文件布局是：
+
+```
+JAVscraper/
+├── README.md                    # ← 更新后：核心用户文档，插件用链接
+├── DEVELOPER.md                 # ← 更新后：核心开发文档 + 插件机制
+├── plugins/
+│   ├── javdb/
+│   │   └── README.md            # ← 待创建：JavDB 插件完整文档
+│   └── jellyfin_nfo/
+│       └── README.md            # ← 待创建：Jellyfin NFO 插件完整文档
+└── ...
+```

@@ -25,7 +25,7 @@ class JavdbConfig:
     show_browser: bool = True
     browser_channel: str = "msedge"
     request_delay: float = 1.0
-    page_timeout: int = 30000            # 毫秒
+    page_timeout: int = 5000            # 毫秒
     max_retries: int = 1
 
     # 行为开关

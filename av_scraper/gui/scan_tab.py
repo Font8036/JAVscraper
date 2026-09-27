@@ -207,6 +207,8 @@ class ScanTab(ttk.Frame):
                     self._on_total(payload)
                 elif kind == "row":
                     self._insert_row(payload)
+                    self._scanned_count += 1
+                    self._update_progress()
                 elif kind == "json":
                     self.app.move_tab.set_input_json(payload)
                     self._append_log(f"[提示] 结果已同步到移动页：{payload}")
@@ -240,8 +242,6 @@ class ScanTab(ttk.Frame):
                     human_size(r.file_size)),
             tags=(tag,),
         )
-        self._scanned_count += 1
-        self._update_progress()
 
     def _finish(self, results: Optional[list[ScrapeResult]]) -> None:
         self._scanning = False

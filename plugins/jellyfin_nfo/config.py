@@ -20,7 +20,7 @@ class JellyfinNfoConfig:
     header_row: int = 1            # 列名所在行
 
     code_column: str = "番号"                       # 单列
-    cover_column: str = "封面"      # ← 新增
+    cover_column: str = "封面"                      # 单列
     title_column: str = "标题"                      # 单列
     actor_columns: str = "演员"                     # 多列，逗号分隔
     rating_columns: str = "评分"                    # 多列
@@ -29,10 +29,10 @@ class JellyfinNfoConfig:
     user_comment_columns: str = "网友评论"          # 多列
 
     # NFO 选项
-    nfo_mode: str = "per_video"       # per_video / movie_nfo / both
-    cover_naming: str = "both"        # same_as_video / code / both
+    nfo_mode: str = "per_video"             # per_video / movie_nfo / both
+    cover_naming: str = "same_as_video"     # same_as_video / code / both
     copy_cover: bool = True
-    overwrite_existing: bool = False
+    overwrite_existing: bool = True
 
     # 历史
     recent_input_excels: list = field(default_factory=list)

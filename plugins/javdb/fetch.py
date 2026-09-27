@@ -28,6 +28,13 @@ ProgressFn = Callable[[int, str, Optional[dict], str], None]
 # (idx0, keyword, payload, status)
 # payload = {"fanhao": ..., "name": ...} 或 None
 
+class NoSearchResultError(Exception):
+    """javdb 搜索返回空结果。调用方应直接跳过，不重试。"""
+
+    def __init__(self, keyword: str):
+        super().__init__(f"搜索无结果: {keyword}")
+        self.keyword = keyword
+
 
 # 这些字符串（不区分大小写）都视为空值
 _INVALID_TOKENS = {"", "nan", "null", "none", "na", "n/a", "nat", "-"}
@@ -138,6 +145,13 @@ async def scrape_javdb(
                             )
                         success = True
                         break
+
+                    except NoSearchResultError:
+                        # 无搜索结果：直接记为失败，不重试
+                        last_error = "无搜索结果"
+                        on_log(f"{keyword}: 搜索无结果，跳过")
+                        break
+
                     except Exception as e:
                         last_error = str(e)
                         if attempt < config.max_retries:
@@ -202,9 +216,15 @@ async def _process_one(
     await page.fill("#video-search", keyword)
     await page.wait_for_selector("#search-submit", timeout=config.page_timeout)
     await page.click("#search-submit")
+    # 结果出现、或"无结果"提示出现，谁先到就响应
     await page.wait_for_selector(
-        ".movie-list .item a", state="visible", timeout=config.page_timeout,
+        ".movie-list .item a, .empty-message", state="visible", timeout=config.page_timeout,
     )
+
+    # 如果命中的是"无结果"提示，直接抛异常，避免无意义的重试
+    empty = await page.query_selector(".empty-message")
+    if empty and await empty.is_visible():
+        raise NoSearchResultError(keyword)
 
     cover_url = await page.get_attribute(".movie-list .item img", "src")
 

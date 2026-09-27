@@ -8,7 +8,7 @@ from dataclasses import fields
 from tkinter import filedialog, messagebox, ttk
 from typing import Any
 
-from ..config import ProcessorConfig, ScraperConfig
+from ..config import AppConfig, ProcessorConfig, ScraperConfig
 
 
 class ConfigTab(ttk.Frame):
@@ -48,6 +48,7 @@ class ConfigTab(ttk.Frame):
 
         self._render_section(inner, "scraper", "刮削器", ScraperConfig)
         self._render_section(inner, "processor", "文件处理器", ProcessorConfig)
+        self._render_section(inner, "app", "应用", AppConfig)
 
         btns = ttk.Frame(inner)
         btns.pack(fill="x", pady=8)
@@ -64,6 +65,9 @@ class ConfigTab(ttk.Frame):
 
         for f in fields(cls):
             if f.metadata.get("hidden"):
+                continue
+            # 新增：跳过嵌套的 dataclass 字段
+            if f.name in ("scraper", "processor"):
                 continue
             row = ttk.Frame(group)
             row.pack(fill="x", pady=2)
@@ -128,7 +132,8 @@ class ConfigTab(ttk.Frame):
     # ---------- 读写 ----------
     def load_from_config(self) -> None:
         for section, cfg in (("scraper", self.app.app_config.scraper),
-                             ("processor", self.app.app_config.processor)):
+                             ("processor", self.app.app_config.processor),
+                             ("app", self.app.app_config)):
             for f in fields(type(cfg)):
                 key = (section, f.name)
                 if key not in self._widgets:
@@ -153,12 +158,14 @@ class ConfigTab(ttk.Frame):
         try:
             scraper = self._collect(ScraperConfig, "scraper")
             processor = self._collect(ProcessorConfig, "processor")
+            app_section = self._collect(AppConfig, "app")
         except Exception as e:
             messagebox.showerror("保存失败", f"{e}")
             return
 
         self.app.app_config.scraper = scraper
         self.app.app_config.processor = processor
+        self.app.app_config.confirm_on_close = app_section.confirm_on_close
         try:
             self.app.app_config.save(self.app.config_path)
         except OSError as e:
@@ -169,11 +176,20 @@ class ConfigTab(ttk.Frame):
         messagebox.showinfo("成功", "配置已保存。")
 
     def _collect(self, cls, section: str):
-        current = getattr(self.app.app_config, section)
+        # "app" 段的 current 是 AppConfig 本身，其它段是对应子对象
+        if section == "app":
+            current = self.app.app_config
+        else:
+            current = getattr(self.app.app_config, section)
+            
         kwargs = {}
         for f in fields(cls):
             if f.metadata.get("hidden"):
                 # hidden 字段没有控件，保留当前值，避免被默认值覆盖
+                kwargs[f.name] = getattr(current, f.name)
+                continue
+            if f.name in ("scraper", "processor"):
+                # 嵌套字段由各自的 section 处理
                 kwargs[f.name] = getattr(current, f.name)
                 continue
             kind, widget = self._widgets[(section, f.name)]

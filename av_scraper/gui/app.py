@@ -19,6 +19,9 @@ from ..plugin_loader import discover_plugins, instantiate_plugin
 logger = logging.getLogger(__name__)   # ← 加这一行
 
 class App(tk.Tk):
+
+    notebook: ttk.Notebook          # ← 加这一行
+
     def __init__(self, config_path: Path):
         super().__init__()
         self.title("JAVscraper")
@@ -29,6 +32,20 @@ class App(tk.Tk):
         self.app_config = AppConfig.load(config_path)
 
         self._build()
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    def _on_close(self):
+        """关闭窗口前的确认。开关由 config.confirm_on_close 控制。"""
+        if getattr(self.app_config, "confirm_on_close", True):
+            from tkinter import messagebox
+            if not messagebox.askyesno(
+                "确认关闭",
+                "确定要关闭程序吗？\n\n"
+                "如果有任务正在进行，会被中断，未保存的数据将丢失。",
+                parent=self,
+            ):
+                return
+        self.destroy()
 
     def _build(self) -> None:
         try:
@@ -42,7 +59,7 @@ class App(tk.Tk):
         self.scan_tab = ScanTab(nb, self)
         self.move_tab = MoveTab(nb, self)
         self.config_tab = ConfigTab(nb, self)
-        # self.notebook = nb
+        self.notebook = nb
         nb.add(self.scan_tab, text="1-扫描")
         nb.add(self.move_tab, text="2-移动")
         nb.add(self.config_tab, text="3-配置")

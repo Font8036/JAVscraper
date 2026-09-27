@@ -89,6 +89,10 @@ class ProcessorConfig:
 class AppConfig:
     scraper: ScraperConfig = field(default_factory=ScraperConfig)
     processor: ProcessorConfig = field(default_factory=ProcessorConfig)
+    confirm_on_close: bool = field(
+        default=True,
+        metadata={"label": "关闭时二次确认", "kind": "bool"},
+    )
 
     # ---------- 读写 ----------
     @classmethod
@@ -104,6 +108,7 @@ class AppConfig:
         return cls(
             scraper=ScraperConfig(**data.get("scraper", {})),
             processor=ProcessorConfig(**data.get("processor", {})),
+            confirm_on_close=data.get("confirm_on_close", True),
         )
 
     def save(self, path: Path) -> None:

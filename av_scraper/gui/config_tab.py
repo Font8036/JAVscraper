@@ -165,13 +165,16 @@ class ConfigTab(ttk.Frame):
 
         self.app.app_config.scraper = scraper
         self.app.app_config.processor = processor
-        self.app.app_config.confirm_on_close = app_section.confirm_on_close
+        
+        for f in dataclasses.fields(AppConfig):
+            if f.name in ("scraper", "processor"):
+                continue
+            setattr(self.app.app_config, f.name, getattr(app_section, f.name))
         try:
             self.app.app_config.save(self.app.config_path)
         except OSError as e:
             messagebox.showerror("保存失败", f"{e}")
             return
-
         self.app.refresh_from_config()
         messagebox.showinfo("成功", "配置已保存。")
 

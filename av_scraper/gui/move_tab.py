@@ -299,7 +299,7 @@ class MoveTab(ttk.Frame):
         d = self.target_var.get().strip()
         if not d:
             return
-        limit = self.app.app_config.scraper.max_recent_dirs
+        limit = self.app.app_config.max_recent_dirs
         cfg.recent_target_dirs = remember_dir(cfg.recent_target_dirs, d, limit)
         self.target_combo.configure(values=list(cfg.recent_target_dirs))
         try:

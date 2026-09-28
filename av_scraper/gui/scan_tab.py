@@ -136,7 +136,7 @@ class ScanTab(ttk.Frame):
         if not self.dir_var.get():
             # 优先用最近一次用过的，其次用配置里的默认目录
             last = cfg.recent_scan_dirs[0] if cfg.recent_scan_dirs else ""
-            self.dir_var.set(last or cfg.default_directory or "")
+            self.dir_var.set(last)
 
     # ---------- 事件 ----------
     def _pick_dir(self) -> None:
@@ -280,7 +280,8 @@ class ScanTab(ttk.Frame):
         if not d:
             return
         cfg.recent_scan_dirs = remember_dir(
-            cfg.recent_scan_dirs, d, cfg.max_recent_dirs)
+            cfg.recent_scan_dirs, d, self.app.app_config.max_recent_dirs,
+            )
         self.dir_combo.configure(values=list(cfg.recent_scan_dirs))
         try:
             self.app.app_config.save(self.app.config_path)

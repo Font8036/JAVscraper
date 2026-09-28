@@ -15,10 +15,7 @@ from .defaults import DEFAULT_EXTENSIONS, DEFAULT_PREFIXES
 
 @dataclass
 class ScraperConfig:
-    default_directory: str = field(
-        default="",
-        metadata={"label": "默认扫描目录", "kind": "dir"},
-    )
+
     output_directory: str = field(
         default="",
         metadata={"label": "输出目录", "kind": "dir"},
@@ -47,13 +44,9 @@ class ScraperConfig:
         default_factory=lambda: list(DEFAULT_PREFIXES),
         metadata={"label": "已知字母前缀", "kind": "list", "big": True},
     )
-    max_recent_dirs: int = field(
-        default=5,
-        metadata={"label": "历史目录上限", "kind": "int"},
-    )
     recent_scan_dirs: list[str] = field(
         default_factory=list,
-        metadata={"label": "最近扫描目录", "kind": "list", "hidden": True},
+        metadata={"hidden": True},
     )
 
 
@@ -61,11 +54,11 @@ class ScraperConfig:
 class ProcessorConfig:
     input_json: str = field(
         default="",
-        metadata={"label": "输入 JSON", "kind": "file"},
+        metadata={"hidden": True},
     )
     target_directory: str = field(
         default="",
-        metadata={"label": "目标目录", "kind": "dir"},
+        metadata={"hidden": True},
     )
     move_to_extracted_folder: bool = field(
         default=True,
@@ -73,7 +66,7 @@ class ProcessorConfig:
     )
     enable_rename: bool = field(
         default=False,
-        metadata={"label": "启用重命名", "kind": "bool"},
+        metadata={"label": "将文件重命名为提取名", "kind": "bool"},
     )
     existing_file_handling: str = field(
         default="rename",
@@ -85,7 +78,7 @@ class ProcessorConfig:
     )
     recent_target_dirs: list[str] = field(
         default_factory=list,
-        metadata={"label": "最近目标目录", "kind": "list", "hidden": True},
+        metadata={"hidden": True},
     )
 
 def _filter_fields(cls, data) -> dict:
@@ -97,11 +90,21 @@ def _filter_fields(cls, data) -> dict:
 
 @dataclass
 class AppConfig:
-    scraper: ScraperConfig = field(default_factory=ScraperConfig)
-    processor: ProcessorConfig = field(default_factory=ProcessorConfig)
+    scraper: ScraperConfig = field(
+        default_factory=ScraperConfig,
+        metadata={"hidden": True},
+    )
+    processor: ProcessorConfig = field(
+        default_factory=ProcessorConfig,
+        metadata={"hidden": True},
+    )
     confirm_on_close: bool = field(
         default=True,
         metadata={"label": "关闭时二次确认", "kind": "bool"},
+    )
+    max_recent_dirs: int = field(
+        default=5,
+        metadata={"label": "历史目录上限", "kind": "int"},
     )
 
     # ---------- 读写 ----------

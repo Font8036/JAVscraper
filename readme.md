@@ -53,11 +53,11 @@ FC2-1234567.mp4
 
 ### 核心版
 
-下载 `av-scraper-core.exe`，放到任意目录，双击运行。
+下载 `JAVscraper_core_win64.exe`，放到任意目录，双击运行。
 
 ### 完整版
 
-下载 `av-scraper-full.zip`，解压到任意目录（比如 `D:\Tools\AVScraper\`），双击里面的 `av-scraper-full.exe`。
+下载 `JAVscraper_full_win64.7z`，解压到任意目录（比如 `D:\Tools\AVScraper\`），双击里面的 `JAVscraper_full_win64.exe`。
 
 > ⚠ **重要**：完整版是一个文件夹，不要只把里面的 `.exe` 单独拷出来，会无法运行。
 

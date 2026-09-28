@@ -79,6 +79,7 @@ class ScanTab(ttk.Frame):
             )
         self.tree.tag_configure("extracted", foreground="#1a7f37")
         self.tree.tag_configure("original", foreground="#999999")
+        self.tree.tag_configure("inherited", foreground="#0a58ca")   # 蓝色
         self.tree.pack(fill="both", expand=True, pady=(8, 0))
 
         self.stats_var = tk.StringVar(value="尚未扫描")
@@ -233,9 +234,13 @@ class ScanTab(ttk.Frame):
             self.stats_var.set("未发现可扫描的文件")
 
     def _insert_row(self, r: ScrapeResult) -> None:
-        icon = "✓" if r.is_extracted else "✗"
-        status = "成功提取" if r.is_extracted else "保持原样"
-        tag = "extracted" if r.is_extracted else "original"
+        if r.inherited:
+            icon, status, tag = "↳", "从父目录继承", "inherited"
+        elif r.is_extracted:
+            icon, status, tag = "✓", "成功提取", "extracted"
+        else:
+            icon, status, tag = "✗", "保持原样", "original"
+
         self.tree.insert(
             "", "end",
             values=(icon, r.filename, r.extracted_code, status,
@@ -257,10 +262,16 @@ class ScanTab(ttk.Frame):
         self._remember_current_dir()
 
         total = len(results)
-        extracted = sum(1 for r in results if r.is_extracted)
-        ratio = extracted / total * 100 if total else 0
-        self.stats_var.set(
-            f"共 {total} 个文件，成功提取 {extracted} 个（{ratio:.1f}%）")
+        extracted = sum(1 for r in results if r.is_extracted and not r.inherited)
+        inherited = sum(1 for r in results if r.inherited)
+        ratio = (extracted + inherited) / total * 100 if total else 0
+        parts = [f"共 {total} 个文件"]
+        if extracted:
+            parts.append(f"直接提取 {extracted}")
+        if inherited:
+            parts.append(f"父目录继承 {inherited}")
+        parts.append(f"总成功率 {ratio:.1f}%")
+        self.stats_var.set("，".join(parts))
         self.app.set_status("扫描完成")
 
     def _remember_current_dir(self) -> None:

@@ -31,6 +31,10 @@ class ScraperConfig:
         default=True,
         metadata={"label": "递归处理子文件夹", "kind": "bool"},
     )
+    inherit_from_parent: bool = field(
+        default=True,
+        metadata={"label": "从父目录继承番号", "kind": "bool"},
+    )
     separators: list[str] = field(
         default_factory=lambda: ["-", "_"],
         metadata={"label": "连接符", "kind": "list"},

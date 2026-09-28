@@ -24,8 +24,9 @@ class ScrapeResult:
     file_path: str
     filename: str
     extracted_code: str
-    status: str  # "extracted" | "original"
+    status: str                 # "extracted" | "original"
     file_size: int
+    inherited: bool = False     # ← 新增
 
     @property
     def is_extracted(self) -> bool:
@@ -142,13 +143,21 @@ class CodeExtractor:
         if on_total is not None:
             on_total(len(candidates))
 
-
         results: list[ScrapeResult] = []
         for path in candidates:
-            if not path.is_file() or not self.is_supported(path.name):
-                continue
             try:
                 code = self.extract(path.name)
+                inherited = False
+
+                # 文件名没提取到，尝试父目录名
+                if code is None and self.config.inherit_from_parent:
+                    parent_name = path.parent.name
+                    if parent_name:
+                        parent_code = self.extract(parent_name)
+                        if parent_code is not None:
+                            code = parent_code
+                            inherited = True
+
                 size = path.stat().st_size
             except OSError as e:
                 logger.warning("读取失败 %s: %s", path.name, e)
@@ -160,8 +169,10 @@ class CodeExtractor:
                 extracted_code=code or path.name,
                 status="extracted" if code else "original",
                 file_size=size,
+                inherited=inherited,
             )
             results.append(result)
-            if progress:
+            if progress is not None:
                 progress(result)
+
         return results

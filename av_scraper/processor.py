@@ -184,7 +184,8 @@ class FileProcessor:
             if progress:
                 progress(op, "ok")
 
-        if success > 0:
+        # 只有全部成功才删记录文件；有失败的话保留，用户可重试
+        if failed == 0 and success > 0:
             try:
                 ops_file.unlink()
             except OSError:

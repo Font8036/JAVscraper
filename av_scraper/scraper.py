@@ -53,8 +53,10 @@ class CodeExtractor:
                 re.compile(rf"FC2{s}({_D}{{6,7}})"))
 
         # 2. 字母前缀
-        prefixes = sorted(set(self.config.known_alpha_prefixes),
-                          key=len, reverse=True)
+        prefixes = sorted(
+            {p.upper() for p in self.config.known_alpha_prefixes if p},
+            key=len, reverse=True,
+        )
         self._prefix_lookup: list[str] = []
         self._prefix_patterns: dict[str, list[re.Pattern]] = {}
         for prefix in prefixes:

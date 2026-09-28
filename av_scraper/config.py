@@ -5,7 +5,7 @@
 """
 
 from __future__ import annotations
-
+import dataclasses
 import json
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -84,6 +84,12 @@ class ProcessorConfig:
         metadata={"label": "最近目标目录", "kind": "list", "hidden": True},
     )
 
+def _filter_fields(cls, data) -> dict:
+    """从 dict 里挑出 cls 认识的字段。非 dict 输入或未知字段都安全忽略。"""
+    if not isinstance(data, dict):
+        return {}
+    known = {f.name for f in dataclasses.fields(cls)}
+    return {k: v for k, v in data.items() if k in known}
 
 @dataclass
 class AppConfig:
@@ -105,11 +111,19 @@ class AppConfig:
             data = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             return cls()
-        return cls(
-            scraper=ScraperConfig(**data.get("scraper", {})),
-            processor=ProcessorConfig(**data.get("processor", {})),
-            confirm_on_close=data.get("confirm_on_close", True),
-        )
+        kwargs = {
+            "scraper": ScraperConfig(
+                **_filter_fields(ScraperConfig, data.get("scraper"))),
+            "processor": ProcessorConfig(
+                **_filter_fields(ProcessorConfig, data.get("processor"))),
+        }
+        for f in dataclasses.fields(cls):
+            if f.name in kwargs:
+                continue
+            if f.name in data:
+                kwargs[f.name] = data[f.name]
+
+        return cls(**kwargs)
 
     def save(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)

@@ -83,7 +83,6 @@ javscraper = "av_scraper.__main__:main"
 
 [tool.setuptools]
 # 只把 av_scraper 包打进 wheel，plugins/ 独立分发
-packages = ["av_scraper"]
 
 [tool.setuptools.packages.find]
 include = ["av_scraper*"]

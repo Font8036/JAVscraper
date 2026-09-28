@@ -149,6 +149,7 @@ class MoveTab(ttk.Frame):
         if not messagebox.askyesno(
             "确认", "确定要执行移动操作吗？这会实际移动文件。"):
             return
+        self.stats_var.set("执行中 0/0")
         self._clear_log()
         self.app.set_status("执行中…")
         self._working = True
@@ -159,7 +160,13 @@ class MoveTab(ttk.Frame):
             proc = FileProcessor(self._effective_config())
             results = proc.load_results(self.input_var.get().strip())
             planned = proc.plan(results)
-            ops, success, skipped, failed = proc.execute(planned)
+
+            def on_progress(idx, total, op, status):
+                self._q.put(("progress", (idx, total, op, status)))
+
+            ops, success, skipped, failed = proc.execute(
+                planned, progress=on_progress,
+                )
             if ops:
                 ops_file = log_dir() / _OPS_FILENAME
                 proc.save_operations(ops, ops_file)
@@ -212,6 +219,8 @@ class MoveTab(ttk.Frame):
                     self._append_log(payload)
                 elif kind == "planned":
                     self._show_planned(payload)
+                elif kind == "progress":
+                    self._on_move_progress(payload)
                 elif kind == "exec_done":
                     self._finish_move(payload)
                 elif kind == "undo_done":
@@ -232,6 +241,25 @@ class MoveTab(ttk.Frame):
         "skip": "skip",
         "overwrite": "overwrite",
     }
+
+    def _on_move_progress(self, payload) -> None:
+        idx, total, op, status = payload
+        self.stats_var.set(f"执行中 {idx}/{total}")
+
+        # 状态列文案
+        status_text = {
+            "ok": "✓ 移动成功",
+            "skip": "○ 跳过",
+            "missing": "✗ 源文件不存在",
+        }.get(status)
+
+        if status_text is None and status.startswith("error:"):
+            status_text = "✗ " + status[len("error:"):]
+
+        # 高亮当前行
+        selected = self.tree.selection()
+        for iid in selected:
+            self.tree.selection_remove(iid)
 
     def _show_planned(self, planned: Optional[list[PlannedOperation]]) -> None:
         self._working = False
@@ -259,9 +287,11 @@ class MoveTab(ttk.Frame):
         success, skipped, failed = payload
         if success > 0:
             self._remember_target_dir()
+        msg = f"成功 {success}，跳过 {skipped}，失败 {failed}"
+        self.stats_var.set(msg)          # ← 新增：把进度覆盖为最终统计
         messagebox.showinfo(
             "移动完成",
-            f"成功 {success}，跳过 {skipped}，失败 {failed}",
+            msg,
         )
 
     def _remember_target_dir(self) -> None:
@@ -284,7 +314,9 @@ class MoveTab(ttk.Frame):
             messagebox.showerror("撤回", "撤回失败，请查看日志。")
             return
         success, failed = payload
-        messagebox.showinfo("撤回完成", f"成功 {success}，失败 {failed}")
+        msg = f"成功 {success}，失败 {failed}"
+        self.stats_var.set(msg)          # ← 新增
+        messagebox.showinfo("撤回完成", msg)
 
     # ---------- 日志 ----------
     def _append_log(self, msg: str) -> None:

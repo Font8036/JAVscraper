@@ -94,23 +94,31 @@ class FileProcessor:
     def execute(
         self,
         planned: list[PlannedOperation],
-        progress: Optional[Callable[[PlannedOperation, str], None]] = None,
+        progress: Optional[Callable[[int, int, PlannedOperation, str], None]] = None,
     ) -> tuple[list[MoveOperation], int, int, int]:
-        """返回 (操作记录, 成功数, 跳过数, 失败数)。"""
+        """返回 (操作记录, 成功数, 跳过数, 失败数)。
+
+        progress(idx, total, op, status)
+          - idx:   当前第几个（从 1 开始）
+          - total: 总数
+          - op:    当前操作
+          - status: "ok" / "skip" / "missing" / "error:<msg>"
+        """
         ops: list[MoveOperation] = []
         success = skipped = failed = 0
+        total = len(planned)
 
-        for p in planned:
+        for idx, p in enumerate(planned, start=1):
             if p.status == "skip":
                 skipped += 1
                 if progress:
-                    progress(p, "skip")
+                    progress(idx, total, p, "skip")
                 continue
 
             if not p.src.exists():
                 failed += 1
                 if progress:
-                    progress(p, "missing")
+                    progress(idx, total, p, "missing")
                 continue
 
             try:
@@ -122,7 +130,7 @@ class FileProcessor:
                 logger.warning("移动失败 %s: %s", p.src.name, e)
                 failed += 1
                 if progress:
-                    progress(p, f"error:{e}")
+                    progress(idx, total, p, f"error:{e}")
                 continue
 
             code = p.dst.parent.name if self.config.move_to_extracted_folder else ""
@@ -135,7 +143,7 @@ class FileProcessor:
             ))
             success += 1
             if progress:
-                progress(p, "ok")
+                progress(idx, total, p, "ok")
 
         return ops, success, skipped, failed
 

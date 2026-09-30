@@ -26,23 +26,39 @@ class ScraperConfig:
     )
     recursive_processing: bool = field(
         default=True,
-        metadata={"label": "递归处理子文件夹", "kind": "bool"},
+        metadata={"label": "递归处理子文件夹",
+                  "kind": "bool",
+                  "row_group": "scraper_bools",     # ← 新增
+        },
     )
     inherit_from_parent: bool = field(
         default=True,
-        metadata={"label": "从父目录继承番号", "kind": "bool"},
+        metadata={"label": "从父目录继承番号",
+                  "kind": "bool",
+                  "row_group": "scraper_bools",     # ← 新增
+        },
     )
     separators: list[str] = field(
         default_factory=lambda: ["-", "_"],
-        metadata={"label": "连接符", "kind": "list"},
+        metadata={"label": "连接符",
+                  "kind": "list",
+                  "row_group": "scraper_lists",     # ← 新增
+        },
     )
     supported_extensions: list[str] = field(
         default_factory=lambda: list(DEFAULT_EXTENSIONS),
-        metadata={"label": "支持的扩展名", "kind": "list"},
+        metadata={"label": "支持的扩展名",
+                  "kind": "list", 
+                  "row_group": "scraper_lists",
+        },
     )
     known_alpha_prefixes: list[str] = field(
         default_factory=lambda: list(DEFAULT_PREFIXES),
-        metadata={"label": "已知字母前缀", "kind": "list", "big": True},
+        metadata={"label": "已知字母前缀", 
+                  "kind": "list",
+                  "big": True, 
+                  "row_group": "scraper_lists",
+        },
     )
     recent_scan_dirs: list[str] = field(
         default_factory=list,
@@ -62,11 +78,17 @@ class ProcessorConfig:
     )
     move_to_extracted_folder: bool = field(
         default=True,
-        metadata={"label": "移动到提取名子文件夹", "kind": "bool"},
+        metadata={"label": "移动到提取名子文件夹", 
+                  "kind": "bool",
+                  "row_group": "processor_bools",   # ← 新增
+        },
     )
     enable_rename: bool = field(
         default=False,
-        metadata={"label": "将文件重命名为提取名", "kind": "bool"},
+        metadata={"label": "将文件重命名为提取名", 
+                  "kind": "bool",
+                  "row_group": "processor_bools",   # ← 新增
+        },
     )
     existing_file_handling: str = field(
         default="rename",

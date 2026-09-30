@@ -19,7 +19,7 @@ from tkinter import filedialog, messagebox, ttk
 from typing import Any, Optional
 
 from av_scraper.plugin_api import PluginContext
-
+from .notify import play_beep, show_toast
 from .parse import is_matched
 from .config import JavdbConfig
 from .fetch import load_targets, save_csv, scrape_javdb
@@ -134,6 +134,14 @@ class JavdbPlugin:
         self._var_save_state = tk.BooleanVar()
         ttk.Checkbutton(
             row3, text="退出时保存登录状态", variable=self._var_save_state,
+        ).pack(side="left", padx=(0, 16))
+        self._var_notify_sound = tk.BooleanVar()
+        ttk.Checkbutton(
+            row3, text="完成时响铃", variable=self._var_notify_sound,
+        ).pack(side="left", padx=(0, 16))
+        self._var_notify_toast = tk.BooleanVar()
+        ttk.Checkbutton(
+            row3, text="完成时发系统通知", variable=self._var_notify_toast,
         ).pack(side="left")
 
         # -------- 按钮区 --------
@@ -208,6 +216,8 @@ class JavdbPlugin:
         self._var_retry.set(str(cfg.max_retries))
         self._var_skip_covers.set(cfg.skip_existing_covers)
         self._var_save_state.set(cfg.save_state_on_exit)
+        self._var_notify_sound.set(cfg.notify_sound)
+        self._var_notify_toast.set(cfg.notify_toast)
 
     def _ui_to_config(self) -> JavdbConfig:
         def _f(s, default):
@@ -235,6 +245,8 @@ class JavdbPlugin:
             max_retries=_i(self._var_retry.get(), 2),
             skip_existing_covers=bool(self._var_skip_covers.get()),
             save_state_on_exit=bool(self._var_save_state.get()),
+            notify_sound=bool(self._var_notify_sound.get()),
+            notify_toast=bool(self._var_notify_toast.get()),
         )
 
     def _on_save_config(self) -> None:
@@ -603,10 +615,19 @@ class JavdbPlugin:
         self._working = False
         self._btn_fetch.configure(state="normal")
         self._btn_stop.configure(state="disabled")
+
         if count is None:
             self._status_var.set("爬取失败")
+            summary = "爬取失败"
         else:
             self._status_var.set(f"爬取完成，共 {count} 条")
+            summary = f"共抓取 {count} 条"
+
+        # 完成提示（两个开关互相独立）
+        if self._config.notify_toast:
+            show_toast("JavDB 刮削完成", summary)
+        if self._config.notify_sound:
+            play_beep()
 
     def _finish_excel(self, ok: bool) -> None:
         self._working = False

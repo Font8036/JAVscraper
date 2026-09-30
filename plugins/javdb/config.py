@@ -31,7 +31,10 @@ class JavdbConfig:
     # 行为开关
     skip_existing_covers: bool = True
     save_state_on_exit: bool = True
-
+    
+    # 完成提示
+    notify_sound: bool = True
+    notify_toast: bool = False
     @classmethod
     def load(cls, path: Path) -> "JavdbConfig":
         if not path.exists():

@@ -14,8 +14,8 @@ from ..paths import log_dir
 from ..config import ScraperConfig
 from ..reports import make_run_directory, save_csv, save_json, save_text_report
 from ..scraper import CodeExtractor, ScrapeResult
-from .common import QueueLogHandler, human_size, make_dir_combobox, remember_dir
-
+from .common import QueueLogHandler, human_size
+from ..widgets import HistoryPathInput
 
 class ScanTab(ttk.Frame):
     def __init__(self, master, app):
@@ -35,11 +35,23 @@ class ScanTab(ttk.Frame):
     def _build(self) -> None:
         top = ttk.Frame(self)
         top.pack(fill="x")
-        ttk.Label(top, text="扫描目录:").pack(side="left")
-        self.dir_var = tk.StringVar()
-        self.dir_combo = make_dir_combobox(top, self.dir_var)
-        self.dir_combo.pack(side="left", padx=4, fill="x", expand=True)
-        ttk.Button(top, text="浏览…", command=self._pick_dir).pack(side="left")
+        self.dir_input = HistoryPathInput(
+            top,
+            label="扫描目录:",
+            kind="dir",
+            get_value=lambda: (
+                self.app.app_config.scraper.recent_scan_dirs[0]
+                if self.app.app_config.scraper.recent_scan_dirs
+                else ""
+            ),
+            set_value=lambda v: None,   # 扫描目录的当前值不单独持久化，只记历史
+            get_history=lambda: self.app.app_config.scraper.recent_scan_dirs,
+            set_history=lambda h: setattr(
+                self.app.app_config.scraper, "recent_scan_dirs", h),
+            get_limit=lambda: self.app.app_config.max_recent_dirs,
+            save=lambda: self.app.app_config.save(self.app.config_path),
+        )
+        self.dir_input.pack(side="left", fill="x", expand=True, padx=4)
         self.btn_scan = ttk.Button(top, text="开始扫描", command=self._on_scan)
         self.btn_scan.pack(side="left", padx=4)
 
@@ -131,25 +143,14 @@ class ScanTab(ttk.Frame):
 
     # ---------- 外部接口 ----------
     def sync_from_config(self) -> None:
-        cfg = self.app.app_config.scraper
-        self.dir_combo.configure(values=list(cfg.recent_scan_dirs))
-        if not self.dir_var.get():
-            # 优先用最近一次用过的，其次用配置里的默认目录
-            last = cfg.recent_scan_dirs[0] if cfg.recent_scan_dirs else ""
-            self.dir_var.set(last)
+        self.dir_input.refresh()
 
     # ---------- 事件 ----------
-    def _pick_dir(self) -> None:
-        d = filedialog.askdirectory(initialdir=self.dir_var.get() or None)
-        if d:
-            self.dir_var.set(d)
-            self.dir_combo.configure(
-                values=list(self.app.app_config.scraper.recent_scan_dirs))
 
     def _on_scan(self) -> None:
         if self._scanning:
             return
-        directory = self.dir_var.get().strip()
+        directory = self.dir_input.get()
         if not directory:
             messagebox.showwarning("提示", "请先选择扫描目录")
             return
@@ -259,7 +260,7 @@ class ScanTab(ttk.Frame):
         self._results = results
         
         # —— 记住本次使用的目录 ——
-        self._remember_current_dir()
+        self.dir_input.commit()
 
         total = len(results)
         extracted = sum(1 for r in results if r.is_extracted and not r.inherited)
@@ -273,20 +274,6 @@ class ScanTab(ttk.Frame):
         parts.append(f"总成功率 {ratio:.1f}%")
         self.stats_var.set("，".join(parts))
         self.app.set_status("扫描完成")
-
-    def _remember_current_dir(self) -> None:
-        cfg = self.app.app_config.scraper
-        d = self.dir_var.get().strip()
-        if not d:
-            return
-        cfg.recent_scan_dirs = remember_dir(
-            cfg.recent_scan_dirs, d, self.app.app_config.max_recent_dirs,
-            )
-        self.dir_combo.configure(values=list(cfg.recent_scan_dirs))
-        try:
-            self.app.app_config.save(self.app.config_path)
-        except OSError:
-            pass
 
     # ---------- 日志 ----------
     def _append_log(self, msg: str) -> None:

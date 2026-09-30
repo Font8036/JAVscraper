@@ -13,7 +13,8 @@ from typing import Any, Optional
 
 from ..paths import log_dir
 from ..processor import FileProcessor, PlannedOperation
-from .common import QueueLogHandler, make_dir_combobox, remember_dir
+from .common import QueueLogHandler
+from ..widgets import HistoryPathInput
 
 _OPS_FILENAME = "move_operations.json"
 
@@ -40,12 +41,23 @@ class MoveTab(ttk.Frame):
             side="left", padx=4, fill="x", expand=True)
         ttk.Button(row1, text="浏览…", command=self._pick_json).pack(side="left")
 
-        row2 = ttk.Frame(self); row2.pack(fill="x", pady=2)
-        ttk.Label(row2, text="目标目录:").pack(side="left")
-        self.target_var = tk.StringVar()
-        self.target_combo = make_dir_combobox(row2, self.target_var)
-        self.target_combo.pack(side="left", padx=4, fill="x", expand=True)
-        ttk.Button(row2, text="浏览…", command=self._pick_target).pack(side="left")
+        self.target_input = HistoryPathInput(
+            self,
+            label="目标目录:",
+            kind="dir",
+            get_value=lambda: (
+                self.app.app_config.processor.recent_target_dirs[0]
+                if self.app.app_config.processor.recent_target_dirs
+                else ""
+            ),
+            set_value=lambda v: None,   # 目标目录不单独持久化，只记历史
+            get_history=lambda: self.app.app_config.processor.recent_target_dirs,
+            set_history=lambda h: setattr(
+                self.app.app_config.processor, "recent_target_dirs", h),
+            get_limit=lambda: self.app.app_config.max_recent_dirs,
+            save=lambda: self.app.app_config.save(self.app.config_path),
+        )
+        self.target_input.pack(fill="x", pady=2)
 
         row3 = ttk.Frame(self); row3.pack(fill="x", pady=6)
         ttk.Button(row3, text="预览更改", command=self._on_preview).pack(side="left")
@@ -80,12 +92,9 @@ class MoveTab(ttk.Frame):
     # ---------- 外部接口 ----------
     def sync_from_config(self) -> None:
         cfg = self.app.app_config.processor
-        self.target_combo.configure(values=list(cfg.recent_target_dirs))
         if not self.input_var.get():
             self.input_var.set(cfg.input_json or "")
-        if not self.target_var.get():
-            last = cfg.recent_target_dirs[0] if cfg.recent_target_dirs else ""
-            self.target_var.set(last or cfg.target_directory or "")
+        self.target_input.refresh()
 
     def set_input_json(self, path: str) -> None:
         self.input_var.set(path)
@@ -99,19 +108,12 @@ class MoveTab(ttk.Frame):
         if f:
             self.input_var.set(f)
 
-    def _pick_target(self) -> None:
-        d = filedialog.askdirectory(initialdir=self.target_var.get() or None)
-        if d:
-            self.target_var.set(d)
-            self.target_combo.configure(
-                values=list(self.app.app_config.processor.recent_target_dirs))
-
     def _effective_config(self):
         cfg = self.app.app_config.processor
         return replace(
             cfg,
             input_json=self.input_var.get().strip() or cfg.input_json,
-            target_directory=self.target_var.get().strip() or cfg.target_directory,
+            target_directory=self.target_input.get() or cfg.target_directory,
         )
 
     def _on_preview(self) -> None:
@@ -286,26 +288,13 @@ class MoveTab(ttk.Frame):
             return
         success, skipped, failed = payload
         if success > 0:
-            self._remember_target_dir()
+            self.target_input.commit()
         msg = f"成功 {success}，跳过 {skipped}，失败 {failed}"
         self.stats_var.set(msg)          # ← 新增：把进度覆盖为最终统计
         messagebox.showinfo(
             "移动完成",
             msg,
         )
-
-    def _remember_target_dir(self) -> None:
-        cfg = self.app.app_config.processor
-        d = self.target_var.get().strip()
-        if not d:
-            return
-        limit = self.app.app_config.max_recent_dirs
-        cfg.recent_target_dirs = remember_dir(cfg.recent_target_dirs, d, limit)
-        self.target_combo.configure(values=list(cfg.recent_target_dirs))
-        try:
-            self.app.app_config.save(self.app.config_path)
-        except OSError:
-            pass
 
     def _finish_undo(self, payload: Optional[tuple[int, int]]) -> None:
         self._working = False

@@ -66,6 +66,16 @@ class MoveTab(ttk.Frame):
         ttk.Button(row3, text="撤回移动", command=self._on_undo).pack(side="left")
         self.stats_var = tk.StringVar(value="尚未预览")
         ttk.Label(row3, textvariable=self.stats_var).pack(side="left", padx=12)
+        # 警示：跨盘移动无法暂停
+        warn = ttk.Label(
+            self,
+            text="⚠ 移动开始后无法暂停。请确保源文件与目标目录位于同一硬盘，"
+                 "跨盘移动会显著变慢。",
+            foreground="#c77b00",
+            wraplength=800,
+            justify="left",
+        )
+        warn.pack(fill="x", pady=(0, 6))
 
         cols = ("src", "dst", "status")
         headers = {"src": "源文件", "dst": "目标路径", "status": "状态"}

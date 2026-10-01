@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import tkinter as tk
 from tkinter import ttk
+from typing import Literal
 
+_AnchorT = Literal["nw", "n", "ne", "w", "center", "e", "sw", "s", "se"]
 
 class ToolTip:
     """给任意 widget 挂一个悬停提示。
@@ -85,3 +87,39 @@ class ToolTip:
             except Exception:
                 pass
             self._tip_window = None
+
+class QuestionMark(ttk.Label):
+    """一个蓝色的 '?' 小标签，鼠标悬停显示提示。"""
+
+    def __init__(self, parent, text: str):
+        super().__init__(
+            parent, 
+            text="?", 
+            foreground="#0a58ca",
+            cursor="question_arrow",
+        )
+        ToolTip(self, text)
+
+
+class LabelWithTip(ttk.Frame):
+    """把'标签文本'和可选的 '?' 组合成一体。
+
+    用法：
+        LabelWithTip(parent, "扫描目录:", tip="要扫描的视频目录")
+        LabelWithTip(parent, "输出目录:", tip=None)          # 没有 ?
+        LabelWithTip(parent, "输出:", width=10, anchor="e")  # 固定宽度
+    """
+
+    def __init__(
+        self,
+        parent,
+        text: str,
+        *,
+        tip: str | None = None,
+        width: int = 0,
+        anchor: _AnchorT = "e",
+    ):
+        super().__init__(parent)
+        ttk.Label(self, text=text, width=width, anchor=anchor).pack(side="left")
+        if tip:
+            QuestionMark(self, tip).pack(side="left", padx=(2, 0))

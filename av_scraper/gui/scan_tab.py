@@ -95,6 +95,7 @@ class ScanTab(ttk.Frame):
                        display=lambda r: human_size(r.file_size),
                        sort=lambda r: r.file_size),
             ],
+            searchable=True,          # ← 新增
             row_tags=_tag,
             tag_configure={
                 "extracted": {"foreground": "#1a7f37"},

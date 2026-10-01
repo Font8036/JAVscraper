@@ -213,7 +213,7 @@ class JavdbPlugin:
         self.result_tree = SortableTreeview(
             root,
             key=lambda r: f"row_{r.idx}",
-            height=10,
+            height=8,
             columns=[
                 Column("target", "目标番号", 140,
                        display=lambda r: r.target,
@@ -229,6 +229,7 @@ class JavdbPlugin:
                        display=_status_text,
                        sort=_status_rank),
             ],
+            searchable=True,          # ← 新增
             row_tags=_tag,
             tag_configure={
                 "ok":        {"foreground": "#1a7f37"},

@@ -118,6 +118,7 @@ class MoveTab(ttk.Frame):
                        display=_status_text,
                        sort=_status_rank),
             ],
+            searchable=True,          # ← 新增
             row_tags=_tag,
             tag_configure={
                 "ok":        {"foreground": "#1a7f37"},

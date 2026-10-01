@@ -14,7 +14,7 @@ from typing import Any, Optional
 from ..paths import log_dir
 from ..processor import FileProcessor, PlannedOperation
 from .common import QueueLogHandler
-from ..widgets import HistoryPathInput
+from ..widgets import HistoryPathInput, Column, SortableTreeview
 
 _OPS_FILENAME = "move_operations.json"
 
@@ -77,24 +77,65 @@ class MoveTab(ttk.Frame):
         )
         warn.pack(fill="x", pady=(0, 6))
 
-        cols = ("src", "dst", "status")
-        headers = {"src": "源文件", "dst": "目标路径", "status": "状态"}
-        widths = {"src": 380, "dst": 540, "status": 140}
-        self.tree = ttk.Treeview(self, columns=cols, show="headings", height=16)
-        for c in cols:
-            self.tree.heading(c, text=headers[c])
-            self.tree.column(c, width=widths[c], anchor="w",
-                             stretch=(c == "dst"))
-        self.tree.tag_configure("ok", foreground="#1a7f37")
-        self.tree.tag_configure("skip", foreground="#999999")
-        self.tree.tag_configure("overwrite", foreground="#c0392b")
-        self.tree.pack(fill="both", expand=True)
+        # 状态映射
+        def _status_text(op) -> str:
+            return {
+                "move": "移动",
+                "rename": "重命名后移动",
+                "skip": "跳过（已存在）",
+                "overwrite": "覆盖",
+            }.get(op.status, op.status) or ""
+
+        def _status_rank(op):
+            # 数值越大越"需要注意"，排序时能直观分组
+            return {
+                "move": 0,
+                "rename": 0,
+                "overwrite": 2,
+                "skip": 1,
+            }.get(op.status, 0)
+
+        def _tag(op):
+            if op.status in ("move", "rename"):
+                return ("ok",)
+            if op.status == "skip":
+                return ("skip",)
+            if op.status == "overwrite":
+                return ("overwrite",)
+            return ()
+
+        self.result_tree = SortableTreeview(
+            self,
+            columns=[
+                Column("src", "源文件", 380,
+                       display=lambda op: str(op.src),
+                       sort=lambda op: str(op.src).lower()),
+                Column("dst", "目标路径", 540,
+                       display=lambda op: str(op.dst),
+                       sort=lambda op: str(op.dst).lower(),
+                       stretch=True),
+                Column("status", "状态", 140,
+                       display=_status_text,
+                       sort=_status_rank),
+            ],
+            row_tags=_tag,
+            tag_configure={
+                "ok":        {"foreground": "#1a7f37"},
+                "skip":      {"foreground": "#999999"},
+                "overwrite": {"foreground": "#c0392b"},
+            },
+        )
+        self.result_tree.pack(fill="both", expand=True)
 
         ttk.Label(self, text="日志:").pack(anchor="w", pady=(8, 0))
         self.log = tk.Text(self, height=8, wrap="none", state="disabled")
         self.log.pack(fill="both")
 
     def _attach_logger(self) -> None:
+        if getattr(self, "_logger_attached", False):
+            return
+        self._logger_attached = True
+
         handler = QueueLogHandler(self._q)
         handler.setFormatter(logging.Formatter("%(message)s"))
         logging.getLogger("av_scraper.processor").addHandler(handler)
@@ -134,7 +175,7 @@ class MoveTab(ttk.Frame):
             messagebox.showerror("错误", f"找不到 JSON 文件：{json_path}")
             return
 
-        self.tree.delete(*self.tree.get_children())
+        self.result_tree.clear()
         self._clear_log()
         self._planned = []
         self.app.set_status("预览中…")
@@ -178,7 +219,7 @@ class MoveTab(ttk.Frame):
 
             ops, success, skipped, failed = proc.execute(
                 planned, progress=on_progress,
-                )
+            )
             if ops:
                 ops_file = log_dir() / _OPS_FILENAME
                 proc.save_operations(ops, ops_file)
@@ -241,37 +282,9 @@ class MoveTab(ttk.Frame):
             pass
         self.after(80, self._poll)
 
-    _STATUS_TEXT = {
-        "move": "移动",
-        "rename": "重命名后移动",
-        "skip": "跳过（已存在）",
-        "overwrite": "覆盖",
-    }
-    _STATUS_TAG = {
-        "move": "ok",
-        "rename": "ok",
-        "skip": "skip",
-        "overwrite": "overwrite",
-    }
-
     def _on_move_progress(self, payload) -> None:
         idx, total, op, status = payload
         self.stats_var.set(f"执行中 {idx}/{total}")
-
-        # 状态列文案
-        status_text = {
-            "ok": "✓ 移动成功",
-            "skip": "○ 跳过",
-            "missing": "✗ 源文件不存在",
-        }.get(status)
-
-        if status_text is None and status.startswith("error:"):
-            status_text = "✗ " + status[len("error:"):]
-
-        # 高亮当前行
-        selected = self.tree.selection()
-        for iid in selected:
-            self.tree.selection_remove(iid)
 
     def _show_planned(self, planned: Optional[list[PlannedOperation]]) -> None:
         self._working = False
@@ -280,13 +293,7 @@ class MoveTab(ttk.Frame):
             self.app.set_status("就绪")
             return
         self._planned = planned
-        for p in planned:
-            self.tree.insert(
-                "", "end",
-                values=(str(p.src), str(p.dst),
-                        self._STATUS_TEXT.get(p.status, p.status)),
-                tags=(self._STATUS_TAG.get(p.status, "ok"),),
-            )
+        self.result_tree.set_data(planned)
         self.stats_var.set(f"共 {len(planned)} 个操作")
         self.app.set_status("预览完成")
 

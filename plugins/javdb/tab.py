@@ -17,7 +17,8 @@ import traceback
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from typing import Any, Optional
-
+from dataclasses import dataclass
+from av_scraper.widgets import Column, SortableTreeview
 from av_scraper.plugin_api import PluginContext
 from .notify import play_beep, show_toast
 from .parse import is_matched
@@ -25,6 +26,14 @@ from .config import JavdbConfig
 from .fetch import load_targets, save_csv, scrape_javdb
 from .report import build_excel
 
+@dataclass
+class FetchRow:
+    idx: int
+    target: str
+    fanhao: str = ""
+    name: str = ""
+    status: str = "waiting"    # waiting / running / ok / mismatch / failed / stopped
+    message: str = ""
 
 class JavdbPlugin:
     name = "JavDB 刮削"
@@ -38,6 +47,8 @@ class JavdbPlugin:
         self._stop_event = threading.Event()
         self._working = False
         self._root: Optional[ttk.Frame] = None
+        self._rows: list[FetchRow] = []
+        self._row_by_idx: dict[int, FetchRow] = {}
 
     # ---------- 配置路径 ----------
     def _resolve_config_path(self) -> Path:
@@ -164,20 +175,70 @@ class JavdbPlugin:
             side="left", padx=12)
 
         # -------- 进度表格 --------
-        cols = ("target", "fanhao", "name", "status")
-        self._tree = ttk.Treeview(
-            root, columns=cols, show="headings", height=10)
-        headers = ("目标番号", "实际番号", "名称", "状态")
-        widths = (140, 140, 420, 180)
-        for c, t, w in zip(cols, headers, widths):
-            self._tree.heading(c, text=t)
-            self._tree.column(c, width=w, anchor="w", stretch=(c == "name"))
-        self._tree.tag_configure("ok", foreground="#1a7f37")
-        self._tree.tag_configure("running", foreground="#0a58ca")
-        self._tree.tag_configure("warn", foreground="#c77b00")
-        self._tree.tag_configure("failed", foreground="#c0392b")
-        self._tree.tag_configure("stopped", foreground="#999999")
-        self._tree.pack(fill="both", expand=True, pady=(8, 0))
+        def _status_text(r: "FetchRow") -> str:
+            if r.status == "waiting":
+                return "等待"
+            if r.status == "running":
+                return "进行中…"
+            if r.status == "ok":
+                return "✓ 完成"
+            if r.status == "mismatch":
+                return "⚠ 完成（番号不同）"
+            if r.status == "failed":
+                return "✗ 失败" + (f"：{r.message[:30]}" if r.message else "")
+            if r.status == "stopped":
+                return "○ 已停止"
+            return r.status
+
+        def _status_rank(r: "FetchRow") -> int:
+            # 数值越小越靠前，排序时把"需要关注"的放上面
+            return {
+                "failed": 0,
+                "mismatch": 1,
+                "stopped": 2,
+                "running": 3,
+                "waiting": 4,
+                "ok": 5,
+            }.get(r.status, 9)
+
+        def _tag(r: "FetchRow") -> tuple:
+            return {
+                "ok": ("ok",),
+                "mismatch": ("warn",),
+                "failed": ("failed",),
+                "running": ("running",),
+                "stopped": ("stopped",),
+            }.get(r.status, ())
+
+        self.result_tree = SortableTreeview(
+            root,
+            key=lambda r: f"row_{r.idx}",
+            height=10,
+            columns=[
+                Column("target", "目标番号", 140,
+                       display=lambda r: r.target,
+                       sort=lambda r: r.target.lower()),
+                Column("fanhao", "实际番号", 140,
+                       display=lambda r: r.fanhao or "—",
+                       sort=lambda r: (r.fanhao or "").lower()),
+                Column("name", "名称", 420,
+                       display=lambda r: r.name or "—",
+                       sort=lambda r: (r.name or "").lower(),
+                       stretch=True),
+                Column("status", "状态", 180,
+                       display=_status_text,
+                       sort=_status_rank),
+            ],
+            row_tags=_tag,
+            tag_configure={
+                "ok":        {"foreground": "#1a7f37"},
+                "running":   {"foreground": "#0a58ca"},
+                "warn":      {"foreground": "#c77b00"},
+                "failed":    {"foreground": "#c0392b"},
+                "stopped":   {"foreground": "#999999"},
+            },
+        )
+        self.result_tree.pack(fill="both", expand=True, pady=(8, 0))
 
         # -------- 日志 --------
         ttk.Label(root, text="日志:").pack(anchor="w", pady=(6, 0))
@@ -426,7 +487,6 @@ class JavdbPlugin:
                 parent=self._parent())
             return
 
-        self._tree.delete(*self._tree.get_children())
         self._clear_log()
 
         try:
@@ -442,11 +502,11 @@ class JavdbPlugin:
                 "提示", "Excel 里没有番号", parent=self._parent())
             return
 
-        for i, t in enumerate(targets):
-            self._tree.insert(
-                "", "end", iid=f"row_{i}",
-                values=(t, "—", "—", "等待"), tags=("",),
-            )
+        # 初始化数据模型
+        self._rows = [FetchRow(idx=i, target=t) for i, t in enumerate(targets)]
+        self._row_by_idx = {r.idx: r for r in self._rows}
+        self.result_tree.clear()
+        self.result_tree.set_data(self._rows)
 
         self._stop_event.clear()
         self._working = True
@@ -463,8 +523,8 @@ class JavdbPlugin:
         def log(msg: str) -> None:
             self._queue.put(("log", msg))
 
-        def progress(idx0, keyword, name, status):
-            self._queue.put(("progress", (idx0, keyword, name, status)))
+        def progress(idx0, keyword, payload, status):
+            self._queue.put(("progress", (idx0, keyword, payload, status)))
 
         try:
             records = asyncio.run(scrape_javdb(
@@ -567,49 +627,31 @@ class JavdbPlugin:
     def _update_row(
         self, idx0: int, keyword: str, payload, status: str,
     ) -> None:
-        iid = f"row_{idx0}"
-        if not self._tree.exists(iid):
+        row = self._row_by_idx.get(idx0)
+        if row is None:
             return
 
-        current = self._tree.item(iid, "values")
-        # current 现在有 4 个值：target, fanhao, name, status
-        target = keyword
-        fanhao = "—"
-        name = "—"
         if status == "ok" and isinstance(payload, dict):
-            fanhao = payload.get("fanhao", "") or"—"
-            name = payload.get("name", "") or "—"
-            display_name = name or "—"
-
-            # ★ 用刮到的番号做比对，不是标题
-            if is_matched(keyword, payload.get("fanhao", "")):
-                text, tag = "✓ 完成", "ok"
-            else:
-                text, tag = f"⚠ 完成（番号不同）", "warn"
+            fanhao = payload.get("fanhao", "") or ""
+            row.fanhao = fanhao
+            row.name = payload.get("name", "") or ""
+            row.status = "ok" if is_matched(keyword, fanhao) else "mismatch"
         elif status.startswith("failed"):
-            err = status[len("failed:"):].strip()
-            text = f"✗ 失败" + (f"：{err[:30]}" if err else "")
-            tag = "failed"
+            row.status = "failed"
+            row.message = status[len("failed:"):].strip()
         elif status == "running":
-            text, tag = "进行中…", "running"
+            row.status = "running"
         elif status == "stopped":
-            text, tag = "○ 已停止", "stopped"
+            row.status = "stopped"
         else:
-            text, tag = status, ""
+            row.status = status
 
-        self._tree.item(
-            iid, 
-            values=(keyword, fanhao, name, text), 
-            tags=(tag,)
-        )
-        self._tree.see(iid)
+        self.result_tree.update_row(row)
+        self.result_tree.see_row(row)
 
-        try:
-            total = len(self._tree.get_children())
-            done = idx0 + 1
-            self._status_var.set(f"爬取中 {done}/{total}")
-        except Exception:
-            pass
+        total = len(self._rows)
+        done = idx0 + 1
+        self._status_var.set(f"爬取中 {done}/{total}")
 
     def _finish_fetch(self, count: Optional[int]) -> None:
         self._working = False

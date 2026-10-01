@@ -39,6 +39,7 @@ class SortableTreeview(ttk.Frame):
         parent,
         columns: list[Column],
         *,
+        key: Optional[Callable[[Any], str]] = None,
         row_tags: Optional[Callable[[Any], tuple[str, ...]]] = None,
         tag_configure: Optional[dict[str, dict]] = None,
         height: int = 16,
@@ -48,6 +49,8 @@ class SortableTreeview(ttk.Frame):
         self._columns = list(columns)
         self._columns_by_key = {c.key: c for c in columns}
         self._row_tags = row_tags or (lambda _d: ())
+        self._key = key or (lambda d: str(id(d)))
+        self._data_by_iid: dict[str, Any] = {}
         self._on_sort_changed = on_sort_changed
 
         # 数据
@@ -93,6 +96,7 @@ class SortableTreeview(ttk.Frame):
         """清空全部数据并重置排序状态。"""
         self._original_data.clear()
         self._visible_data.clear()
+        self._data_by_iid.clear()
         self._sort_column = None
         self._sort_direction = "original"
         self.tree.delete(*self.tree.get_children())
@@ -121,6 +125,36 @@ class SortableTreeview(ttk.Frame):
         else:
             self._apply_sort()
             self._redraw()
+
+    def update_row(self, data: Any) -> None:
+        """按 key 找到对应行并刷新显示。
+
+        排序中也可以调用——iid 是稳定的，位置变了照样能定位。
+        """
+        iid = self._key(data)
+        if not self.tree.exists(iid):
+            return
+        values = tuple(self._render_cell(c, data) for c in self._columns)
+        tags = self._row_tags(data)
+        self.tree.item(iid, values=values, tags=tags)
+        self._data_by_iid[iid] = data
+        # 同步到 _visible_data 里的引用
+        for i, d in enumerate(self._visible_data):
+            if self._key(d) == iid:
+                self._visible_data[i] = data
+                break
+        # _original_data 里同一对象如果是引用更新，无需处理；
+        # 如果是不同对象，找到对应位置替换
+        for i, d in enumerate(self._original_data):
+            if self._key(d) == iid:
+                self._original_data[i] = data
+                break
+
+    def see_row(self, data: Any) -> None:
+        """滚动到指定行。"""
+        iid = self._key(data)
+        if self.tree.exists(iid):
+            self.tree.see(iid)
 
     # ============================================================
     # 排序状态
@@ -191,13 +225,16 @@ class SortableTreeview(ttk.Frame):
     # ============================================================
     def _redraw(self) -> None:
         self.tree.delete(*self.tree.get_children())
+        self._data_by_iid.clear()
         for data in self._visible_data:
             self._insert_one(data)
 
     def _insert_one(self, data: Any) -> None:
         values = tuple(self._render_cell(c, data) for c in self._columns)
         tags = self._row_tags(data)
-        self.tree.insert("", "end", values=values, tags=tags)
+        iid = self._key(data)
+        self.tree.insert("", "end", iid=iid, values=values, tags=tags)
+        self._data_by_iid[iid] = data
 
     @staticmethod
     def _render_cell(col: Column, data: Any) -> str:

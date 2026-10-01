@@ -7,7 +7,7 @@ import queue
 import threading
 import tkinter as tk
 from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
+from tkinter import messagebox, ttk
 from typing import Any, Optional
 
 from ..paths import log_dir
@@ -15,7 +15,7 @@ from ..config import ScraperConfig
 from ..reports import make_run_directory, save_csv, save_json, save_text_report
 from ..scraper import CodeExtractor, ScrapeResult
 from .common import QueueLogHandler, human_size
-from ..widgets import HistoryPathInput
+from ..widgets import Column, HistoryPathInput, SortableTreeview
 
 class ScanTab(ttk.Frame):
     def __init__(self, master, app):
@@ -55,44 +55,54 @@ class ScanTab(ttk.Frame):
         self.btn_scan = ttk.Button(top, text="开始扫描", command=self._on_scan)
         self.btn_scan.pack(side="left", padx=4)
 
-        # ---------- 表头元数据升成实例属性 ----------
-        self._HEADERS = {
-            "icon":     "",
-            "filename": "文件名",
-            "code":     "提取码",
-            "status":   "状态",
-            "size":     "大小",
-        }
-        self._WIDTHS = {
-            "icon": 40, "filename": 480, "code": 200, "status": 100, "size": 100,
-        }
-        # 每一列的排序 key：返回可比较的值
-        self._SORT_KEYS = {
-            "icon":     lambda r: 1 if r.is_extracted else 0,   # 0=✗, 1=✓
-            "status":   lambda r: 1 if r.is_extracted else 0,
-            "filename": lambda r: r.filename.lower(),
-            "code":     lambda r: r.extracted_code.lower(),
-            "size":     lambda r: r.file_size,
-        }
-        # col -> 是否降序；只保留一个活动排序列
-        self._sort_state: dict[str, bool] = {}
+        # 状态判定辅助（把 ScrapeResult 翻译成展示/排序信息）
+        def _status_rank(r):
+            if r.inherited:
+                return 2
+            return 1 if r.is_extracted else 0
 
-        cols = ("icon", "filename", "code", "status", "size")
-        self.tree = ttk.Treeview(self, columns=cols, show="headings", height=16)
-        for c in cols:
-            self.tree.heading(
-                c, text=self._HEADERS[c],
-                command=lambda col=c: self._sort_by(col),
-            )
-            self.tree.column(
-                c, width=self._WIDTHS[c],
-                anchor="center" if c == "icon" else "w",
-                stretch=(c == "filename"),
-            )
-        self.tree.tag_configure("extracted", foreground="#1a7f37")
-        self.tree.tag_configure("original", foreground="#999999")
-        self.tree.tag_configure("inherited", foreground="#0a58ca")   # 蓝色
-        self.tree.pack(fill="both", expand=True, pady=(8, 0))
+        def _status_text(r):
+            if r.inherited:
+                return "从父目录继承"
+            return "成功提取" if r.is_extracted else "保持原样"
+
+        def _icon(r):
+            if r.inherited:
+                return "↳"
+            return "✓" if r.is_extracted else "✗"
+
+        def _tag(r):
+            if r.inherited:
+                return ("inherited",)
+            return ("extracted",) if r.is_extracted else ("original",)
+
+        self.result_tree = SortableTreeview(
+            self,
+            columns=[
+                Column("icon", "", 40,
+                       display=_icon, sort=_status_rank,
+                       anchor="center"),
+                Column("filename", "文件名", 480,
+                       display=lambda r: r.filename,
+                       sort=lambda r: r.filename.lower(),
+                       stretch=True),
+                Column("code", "提取码", 200,
+                       display=lambda r: r.extracted_code,
+                       sort=lambda r: r.extracted_code.lower()),
+                Column("status", "状态", 120,
+                       display=_status_text, sort=_status_rank),
+                Column("size", "大小", 100,
+                       display=lambda r: human_size(r.file_size),
+                       sort=lambda r: r.file_size),
+            ],
+            row_tags=_tag,
+            tag_configure={
+                "extracted": {"foreground": "#1a7f37"},
+                "original":  {"foreground": "#999999"},
+                "inherited": {"foreground": "#0a58ca"},
+            },
+        )
+        self.result_tree.pack(fill="both", expand=True, pady=(8, 0))
 
         self.stats_var = tk.StringVar(value="尚未扫描")
         ttk.Label(self, textvariable=self.stats_var).pack(anchor="w", pady=4)
@@ -101,41 +111,11 @@ class ScanTab(ttk.Frame):
         self.log = tk.Text(self, height=8, wrap="none", state="disabled")
         self.log.pack(fill="both")
 
-    # ---------- 排序 ----------
-    def _sort_by(self, col: str) -> None:
-        """点击表头切换排序列与方向。"""
-        if self._scanning or not self._results:
-            return
-
-        # 首次点某列：升序；再次点同一列：反转
-        if col in self._sort_state:
-            reverse = not self._sort_state[col]
-        else:
-            reverse = False
-
-        self._results.sort(key=self._SORT_KEYS[col], reverse=reverse)
-
-        # 只保留一个活动排序列；避免多列状态叠加造成歧义
-        self._sort_state = {col: reverse}
-
-        self._redraw()
-        self._update_headers()
-
-    def _update_headers(self) -> None:
-        active = next(iter(self._sort_state), None)
-        reverse = self._sort_state.get(active, False) if active else False
-        for c, base in self._HEADERS.items():
-            text = base
-            if c == active:
-                text += " ▼" if reverse else " ▲"
-            self.tree.heading(c, text=text)
-
-    def _redraw(self) -> None:
-        self.tree.delete(*self.tree.get_children())
-        for r in self._results:
-            self._insert_row(r)
-
     def _attach_logger(self) -> None:
+        if getattr(self, "_logger_attached", False):
+            return
+        self._logger_attached = True
+
         handler = QueueLogHandler(self._q)
         handler.setFormatter(logging.Formatter("%(message)s"))
         for name in ("av_scraper.scraper", "av_scraper.reports"):
@@ -158,11 +138,9 @@ class ScanTab(ttk.Frame):
             messagebox.showerror("错误", f"目录不存在：{directory}")
             return
 
-        self.tree.delete(*self.tree.get_children())
+        self.result_tree.clear()
         self._clear_log()
         self._results = []
-        self._sort_state = {}          # ← 新增
-        self._update_headers()          # ← 恢复表头（去掉 ▲▼）
         self.stats_var.set("正在统计文件数…")
         self.app.set_status("正在扫描…")
         self._scanning = True
@@ -192,8 +170,9 @@ class ScanTab(ttk.Frame):
 
             self._q.put(("json", str(run_dir / cfg.output_filename)))
             self._q.put(("done", results))
-        except Exception:
+        except Exception as e:
             logging.getLogger("av_scraper.scraper").exception("扫描失败")
+            self._q.put(("log_error", f"扫描失败：{e}"))
             self._q.put(("done", None))
 
     # ---------- 主线程消费 ----------
@@ -214,6 +193,8 @@ class ScanTab(ttk.Frame):
                 elif kind == "json":
                     self.app.move_tab.set_input_json(payload)
                     self._append_log(f"[提示] 结果已同步到移动页：{payload}")
+                elif kind == "log_error":
+                    self._append_log(payload)
                 elif kind == "done":
                     self._finish(payload)
         except queue.Empty:
@@ -235,19 +216,7 @@ class ScanTab(ttk.Frame):
             self.stats_var.set("未发现可扫描的文件")
 
     def _insert_row(self, r: ScrapeResult) -> None:
-        if r.inherited:
-            icon, status, tag = "↳", "从父目录继承", "inherited"
-        elif r.is_extracted:
-            icon, status, tag = "✓", "成功提取", "extracted"
-        else:
-            icon, status, tag = "✗", "保持原样", "original"
-
-        self.tree.insert(
-            "", "end",
-            values=(icon, r.filename, r.extracted_code, status,
-                    human_size(r.file_size)),
-            tags=(tag,),
-        )
+        self.result_tree.append_row(r)
 
     def _finish(self, results: Optional[list[ScrapeResult]]) -> None:
         self._scanning = False

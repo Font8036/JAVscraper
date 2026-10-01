@@ -11,7 +11,7 @@ from av_scraper.__main__ import main
 # 打包命令
 # conda activate private
 # cd /d C:\Disk\C\applicationdata\coding\JAVscraper
-# pyinstaller -F -w -n JAVscraper_core_v0.3.8_win64 --paths . --clean run.py
+# pyinstaller -F -w -n JAVscraper_core_v0.3.16_win64 --paths . --clean run.py
 
 if __name__ == "__main__":
     main()

@@ -78,6 +78,7 @@ class ScanTab(ttk.Frame):
 
         self.result_tree = SortableTreeview(
             self,
+            height=10,
             columns=[
                 Column("icon", "", 40,
                        display=_icon, sort=_status_rank,

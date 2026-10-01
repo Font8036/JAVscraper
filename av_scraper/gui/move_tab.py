@@ -106,6 +106,7 @@ class MoveTab(ttk.Frame):
 
         self.result_tree = SortableTreeview(
             self,
+            height=10,
             columns=[
                 Column("src", "源文件", 380,
                        display=lambda op: str(op.src),

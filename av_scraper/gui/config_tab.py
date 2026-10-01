@@ -7,7 +7,7 @@ import tkinter as tk
 from dataclasses import fields
 from tkinter import filedialog, messagebox, ttk
 from typing import Any
-
+from ..widgets import ToolTip
 from ..config import AppConfig, ProcessorConfig, ScraperConfig
 
 
@@ -156,10 +156,19 @@ class ConfigTab(ttk.Frame):
                        label_width: int) -> None:
         row = ttk.Frame(parent)
         row.pack(fill="x", pady=2)
+
         label = f.metadata.get("label", f.name)
         kind = f.metadata.get("kind", "str")
-        ttk.Label(row, text=label + ":", width=label_width,
+        tip = f.metadata.get("tooltip")
+
+        # Label 和 "?" 放同一个 Frame，保证两者紧邻
+        label_box = ttk.Frame(row)
+        label_box.pack(side="left")
+        ttk.Label(label_box, text=label + ":", width=label_width,
                   anchor="e").pack(side="left")
+        if tip:
+            self._attach_question_mark(label_box, tip)
+
         widget = self._make_widget(row, kind, f)
         self._widgets[(section, f.name)] = (kind, widget)
 
@@ -171,15 +180,19 @@ class ConfigTab(ttk.Frame):
 
         for i, f in enumerate(row_fields):
             label = f.metadata.get("label", f.name)
+            tip = f.metadata.get("tooltip")
             var = tk.BooleanVar()
             pad = (0, 20) if i < len(row_fields) - 1 else (0, 0)
-            ttk.Checkbutton(row, text=label, variable=var).pack(
-                side="left", padx=pad)
+
+            cell = ttk.Frame(row)
+            cell.pack(side="left", padx=pad)
+            ttk.Checkbutton(cell, text=label, variable=var).pack(side="left")
+            if tip:
+                self._attach_question_mark(cell, tip)
+
             self._widgets[(section, f.name)] = ("bool", var)
 
-    # _render_list_row 保持不变
     def _render_list_row(self, parent, section: str, row_fields: list) -> None:
-        """一行里放多个 list，等宽并排。"""
         row = ttk.Frame(parent)
         row.pack(fill="x", pady=2)
 
@@ -190,13 +203,27 @@ class ConfigTab(ttk.Frame):
             cell = ttk.Frame(row)
             cell.grid(row=0, column=i, sticky="nsew",
                       padx=(4 if i > 0 else 0, 4))
+
             label = f.metadata.get("label", f.name)
-            ttk.Label(cell, text=label + ":").pack(anchor="w")
+            tip = f.metadata.get("tooltip")
+            label_box = ttk.Frame(cell)
+            label_box.pack(anchor="w", fill="x")
+            ttk.Label(label_box, text=label + ":").pack(side="left")
+            if tip:
+                self._attach_question_mark(label_box, tip)
 
             height = 14 if f.metadata.get("big") else 4
             txt = tk.Text(cell, height=height, wrap="none", width=1)
             txt.pack(fill="both", expand=True)
             self._widgets[(section, f.name)] = ("list", txt)
+
+    @staticmethod
+    def _attach_question_mark(parent, text: str) -> None:
+        """在 parent 里追加一个 '?' 标签，鼠标悬停显示 text。"""
+        q = ttk.Label(parent, text="?", foreground="#0a58ca",
+                      cursor="question_arrow")
+        q.pack(side="left", padx=(2, 0))
+        ToolTip(q, text)
 
     def _make_widget(self, row, kind: str, f: dataclasses.Field) -> Any:
         if kind == "bool":

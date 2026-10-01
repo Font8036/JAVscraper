@@ -18,46 +18,59 @@ class ScraperConfig:
 
     output_directory: str = field(
         default="",
-        metadata={"label": "输出目录", "kind": "dir"},
+        metadata={
+            "label": "输出目录",
+            "kind": "dir",
+            "tooltip": "扫描结果（JSON / TXT / CSV）保存的位置。留空则自动保存到程序目录下的 log/ 里。一般留空即可。",
+        },
     )
     output_filename: str = field(
         default="scraper_results.json",
-        metadata={"label": "输出文件名", "kind": "str"},
+        metadata={
+            "label": "输出文件名", 
+            "kind": "str",
+            "tooltip": "扫描结果 JSON 的文件名。移动功能需要读取这份文件。一般不需要修改。",
+        },
     )
     recursive_processing: bool = field(
         default=True,
-        metadata={"label": "递归处理子文件夹",
-                  "kind": "bool",
-                  "row_group": "scraper_bools",     # ← 新增
+        metadata={
+            "label": "递归处理子文件夹",
+            "kind": "bool",
+            "row_group": "scraper_bools",     # ← 新增
         },
     )
     inherit_from_parent: bool = field(
         default=True,
-        metadata={"label": "从父目录继承番号",
-                  "kind": "bool",
-                  "row_group": "scraper_bools",     # ← 新增
+        metadata={
+            "label": "从父目录继承番号",
+            "kind": "bool",
+            "row_group": "scraper_bools",     # ← 新增
         },
     )
     separators: list[str] = field(
         default_factory=lambda: ["-", "_"],
-        metadata={"label": "连接符",
-                  "kind": "list",
-                  "row_group": "scraper_lists",     # ← 新增
+        metadata={
+            "label": "连接符",
+            "kind": "list",
+            "row_group": "scraper_lists",     # ← 新增
         },
     )
     supported_extensions: list[str] = field(
         default_factory=lambda: list(DEFAULT_EXTENSIONS),
-        metadata={"label": "支持的扩展名",
-                  "kind": "list", 
-                  "row_group": "scraper_lists",
+        metadata={
+            "label": "支持的扩展名",
+            "kind": "list", 
+            "row_group": "scraper_lists",
         },
     )
     known_alpha_prefixes: list[str] = field(
         default_factory=lambda: list(DEFAULT_PREFIXES),
-        metadata={"label": "已知字母前缀", 
-                  "kind": "list",
-                  "big": True, 
-                  "row_group": "scraper_lists",
+        metadata={
+            "label": "已知字母前缀", 
+            "kind": "list",
+            "big": True, 
+            "row_group": "scraper_lists",
         },
     )
     recent_scan_dirs: list[str] = field(
@@ -78,16 +91,22 @@ class ProcessorConfig:
     )
     move_to_extracted_folder: bool = field(
         default=True,
-        metadata={"label": "移动到提取名子文件夹", 
-                  "kind": "bool",
-                  "row_group": "processor_bools",   # ← 新增
+        metadata={
+            "label": "移动到提取名子文件夹", 
+            "kind": "bool",
+            "row_group": "processor_bools",   # ← 新增
+            "tooltip": "勾上后，每个番号建一个子文件夹，文件放进去。\n"
+                "取消则所有文件平铺到目标目录。\n考虑到同一个番号可能对应多个视频文件，且还可能会有字幕文件等，建议勾上。",
         },
     )
     enable_rename: bool = field(
         default=False,
-        metadata={"label": "将文件重命名为提取名", 
-                  "kind": "bool",
-                  "row_group": "processor_bools",   # ← 新增
+        metadata={
+            "label": "将文件重命名为提取名", 
+            "kind": "bool",
+            "row_group": "processor_bools",   # ← 新增
+            "tooltip": "勾上后，用提取到的番号作为文件名（保留原扩展名）。\n"
+                "取消则保持原文件名。",
         },
     )
     existing_file_handling: str = field(
@@ -96,6 +115,10 @@ class ProcessorConfig:
             "label": "文件冲突处理",
             "kind": "choice",
             "choices": ["skip", "overwrite", "rename"],
+            "tooltip": "目标目录已有同名文件时：\n"
+                       "  skip — 跳过\n"
+                       "  overwrite — 覆盖\n"
+                       "  rename — 自动加 _01、_02 后缀",
         },
     )
     recent_target_dirs: list[str] = field(
@@ -122,11 +145,17 @@ class AppConfig:
     )
     confirm_on_close: bool = field(
         default=True,
-        metadata={"label": "关闭时二次确认", "kind": "bool"},
+        metadata={
+            "label": "关闭时二次确认", 
+            "kind": "bool",
+        },
     )
     max_recent_dirs: int = field(
         default=5,
-        metadata={"label": "历史目录上限", "kind": "int"},
+        metadata={
+            "label": "历史目录上限", 
+            "kind": "int",
+        },
     )
 
     # ---------- 读写 ----------

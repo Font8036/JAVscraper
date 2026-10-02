@@ -21,9 +21,10 @@ from tkinter import ttk
 from typing import Any, Callable, Literal, Optional
 
 _AnchorT = Literal["nw", "n", "ne", "w", "center", "e", "sw", "s", "se"]
-_MODE_ALL = "全部列"
-_MODE_REGEX = "正则"
-
+_COL_ALL = "全部列"
+_FILTER_ALL = "全部"
+_FILTER_CHECKED = "已勾选"
+_FILTER_UNCHECKED = "未勾选"
 # 勾选框符号
 _SYM_CHECKED = "☑"
 _SYM_UNCHECKED = "☐"
@@ -57,12 +58,14 @@ class SortableTreeview(ttk.Frame):
         searchable: bool = False,
         filter_func: Optional[Callable[[Any, str], bool]] = None,
         on_sort_changed: Optional[Callable[[Optional[str], str], None]] = None,
+        on_selection_changed: Optional[Callable[[], None]] = None,
     ):
         super().__init__(parent)
         self._columns = list(columns)
         self._columns_by_key = {c.key: c for c in columns}
         self._row_tags = row_tags or (lambda _d: ())
         self._on_sort_changed = on_sort_changed
+        self._on_selection_changed = on_selection_changed
         self._key = key or (lambda d: str(id(d)))
         self._custom_filter_func = filter_func
         self._height = height
@@ -79,7 +82,9 @@ class SortableTreeview(ttk.Frame):
         # 搜索状态
         self._filter_text = ""
         self._search_var: Optional[tk.StringVar] = None
-        self._mode_var: Optional[tk.StringVar] = None
+        self._col_var: Optional[tk.StringVar] = None
+        self._filter_var: Optional[tk.StringVar] = None
+        self._regex_var: Optional[tk.BooleanVar] = None
         self._match_label_var: Optional[tk.StringVar] = None
 
         # 勾选状态
@@ -113,27 +118,47 @@ class SortableTreeview(ttk.Frame):
         entry = ttk.Entry(bar, textvariable=self._search_var)
         entry.pack(side="left", fill="x", expand=True, padx=(4, 4))
 
-        self._mode_var = tk.StringVar(value=_MODE_ALL)
-        combo = ttk.Combobox(
-            bar, textvariable=self._mode_var,
-            values=self._mode_values(),
-            state="readonly", width=12,
+        # 列选择下拉
+        self._col_var = tk.StringVar(value=_COL_ALL)
+        col_combo = ttk.Combobox(
+            bar, textvariable=self._col_var,
+            values=self._column_values(),
+            state="readonly", width=10,
         )
-        combo.pack(side="left", padx=(0, 6))
-        combo.bind("<<ComboboxSelected>>", self._on_mode_changed)
+        col_combo.pack(side="left", padx=(0, 4))
+        col_combo.bind("<<ComboboxSelected>>", self._on_col_changed)
 
+        # 筛选下拉（仅在存在勾选列时显示）
+        if self._checkbox_key is not None:
+            self._filter_var = tk.StringVar(value=_FILTER_ALL)
+            filter_combo = ttk.Combobox(
+                bar, textvariable=self._filter_var,
+                values=[_FILTER_ALL, _FILTER_CHECKED, _FILTER_UNCHECKED],
+                state="readonly", width=8,
+            )
+            filter_combo.pack(side="left", padx=(0, 4))
+            filter_combo.bind("<<ComboboxSelected>>", self._on_filter_changed)
+
+        # 正则勾选框
+        self._regex_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            bar, text="正则", variable=self._regex_var,
+            command=self._on_regex_changed,
+        ).pack(side="left", padx=(0, 6))
+
+        # 计数
         self._match_label_var = tk.StringVar(value="")
         ttk.Label(
             bar, textvariable=self._match_label_var,
             foreground="#666", width=10, anchor="e",
         ).pack(side="left")
 
-    def _mode_values(self) -> list[str]:
-        values = [_MODE_ALL]
+    def _column_values(self) -> list[str]:
+        """列选择下拉的选项：全部列 + 各可搜索列（排除勾选列）。"""
+        values = [_COL_ALL]
         for c in self._columns:
             if c.header and c.searchable and c.kind != "checkbox":
                 values.append(c.header)
-        values.append(_MODE_REGEX)
         return values
 
     def _build_tree(self) -> None:
@@ -174,11 +199,16 @@ class SortableTreeview(ttk.Frame):
         self._filter_text = ""
         if self._search_var is not None:
             self._search_var.set("")
-        if self._mode_var is not None:
-            self._mode_var.set(_MODE_ALL)
+        if self._col_var is not None:
+            self._col_var.set(_COL_ALL)
+        if self._filter_var is not None:
+            self._filter_var.set(_FILTER_ALL)
+        if self._regex_var is not None:
+            self._regex_var.set(False)
         self.tree.delete(*self.tree.get_children())
         self._update_headers()
         self._update_match_count()
+        self._notify_selection()
 
     def set_data(self, rows: list[Any], *, select_all: bool = True) -> None:
         self._original_data = list(rows)
@@ -191,6 +221,7 @@ class SortableTreeview(ttk.Frame):
         self._redraw()
         self._update_match_count()
         self._update_headers()
+        self._notify_selection()
 
     def append_row(self, data: Any, *, scroll: bool = True,
                    select: Optional[bool] = None) -> None:
@@ -276,6 +307,7 @@ class SortableTreeview(ttk.Frame):
             self._selected.discard(iid)
         self._refresh_display(iid)
         self._update_headers()
+        self._notify_selection()
 
     def set_all_selected(self, selected: bool) -> None:
         """对所有数据设置勾选状态。"""
@@ -293,12 +325,14 @@ class SortableTreeview(ttk.Frame):
             self._selected.add(self._key(d))
         self._redraw()
         self._update_headers()
+        self._notify_selection()
 
     def deselect_all_visible(self) -> None:
         for d in self._visible_data:
             self._selected.discard(self._key(d))
         self._redraw()
         self._update_headers()
+        self._notify_selection()
 
     # ---------- 点击处理 ----------
     def _on_tree_click(self, event) -> Optional[str]:
@@ -332,7 +366,15 @@ class SortableTreeview(ttk.Frame):
             self._selected.add(iid)
         self._refresh_display(iid)
         self._update_headers()
+        self._notify_selection()
         return "break"      # 阻止默认行选择，让复选框表现得像"复选框"
+
+    def _notify_selection(self) -> None:
+        if self._on_selection_changed is not None:
+            try:
+                self._on_selection_changed()
+            except Exception:
+                pass
 
     def _refresh_display(self, iid: str) -> None:
         data = self._data_by_iid.get(iid)
@@ -414,12 +456,24 @@ class SortableTreeview(ttk.Frame):
                 self._selected.add(iid)
         self._redraw()
         self._update_headers()
+        self._notify_selection()
 
     def _apply_filter_and_sort(self) -> None:
         base = list(self._original_data)
+
+        # 1. 勾选筛选
+        if self._filter_var is not None:
+            mode = self._filter_var.get()
+            if mode == _FILTER_CHECKED:
+                base = [d for d in base if self._key(d) in self._selected]
+            elif mode == _FILTER_UNCHECKED:
+                base = [d for d in base if self._key(d) not in self._selected]
+
+        # 2. 文本搜索
         if self._filter_text:
             base = [d for d in base if self._match(d, self._filter_text)]
 
+        # 3. 排序
         if self._sort_direction == "original" or self._sort_column is None:
             self._visible_data = base
         else:
@@ -458,46 +512,56 @@ class SortableTreeview(ttk.Frame):
         if self._search_var is None:
             return
         self._filter_text = self._search_var.get()
+        self._refresh()
+
+    def _refresh(self) -> None:
         self._apply_filter_and_sort()
         self._redraw()
         self._update_match_count()
         self._update_headers()
 
-    def _on_mode_changed(self, _e=None) -> None:
-        self._apply_filter_and_sort()
-        self._redraw()
-        self._update_match_count()
-        self._update_headers()
+    def _on_col_changed(self, _e=None) -> None:
+        self._refresh()
+
+    def _on_filter_changed(self, _e=None) -> None:
+        self._refresh()
+
+    def _on_regex_changed(self) -> None:
+        self._refresh()
 
     def _match(self, data: Any, keyword: str) -> bool:
         if self._custom_filter_func is not None:
             return bool(self._custom_filter_func(data, keyword))
 
-        mode = self._mode_var.get() if self._mode_var is not None else _MODE_ALL
+        col_mode = self._col_var.get() if self._col_var is not None else _COL_ALL
+        use_regex = bool(self._regex_var.get()) if self._regex_var is not None else False
 
-        if mode == _MODE_REGEX:
+        # 决定搜索哪些列
+        if col_mode == _COL_ALL:
+            cols = [
+                c for c in self._columns
+                if c.kind != "checkbox" and c.searchable
+            ]
+        else:
+            col = next(
+                (c for c in self._columns
+                 if c.header == col_mode and c.searchable and c.kind != "checkbox"),
+                None,
+            )
+            cols = [col] if col is not None else []
+
+        if not cols:
+            return False
+
+        if use_regex:
             try:
                 pat = re.compile(keyword, re.IGNORECASE)
             except re.error:
                 return False
-            return any(pat.search(self._render_cell(c, data))
-                       for c in self._columns if c.kind != "checkbox")
+            return any(pat.search(self._render_cell(c, data)) for c in cols)
 
-        if mode == _MODE_ALL:
-            kw = keyword.lower()
-            return any(
-                kw in self._render_cell(c, data).lower()
-                for c in self._columns if c.kind != "checkbox"
-            )
-
-        col = next(
-            (c for c in self._columns
-             if c.header == mode and c.searchable and c.kind != "checkbox"),
-            None,
-        )
-        if col is None:
-            return False
-        return keyword.lower() in self._render_cell(col, data).lower()
+        kw = keyword.lower()
+        return any(kw in self._render_cell(c, data).lower() for c in cols)
 
     def _update_match_count(self) -> None:
         if self._match_label_var is None:

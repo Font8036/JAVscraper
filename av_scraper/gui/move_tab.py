@@ -126,6 +126,7 @@ class MoveTab(ttk.Frame):
                        sort=_status_rank),
             ],
             searchable=True,          # ← 新增
+            on_selection_changed=self._on_selection_changed,      # ← 新增
             row_tags=_tag,
             tag_configure={
                 "ok":        {"foreground": "#1a7f37"},
@@ -207,20 +208,34 @@ class MoveTab(ttk.Frame):
         if not self.input_var.get().strip():
             messagebox.showwarning("提示", "请先指定输入 JSON")
             return
-        if not messagebox.askyesno(
-            "确认", "确定要执行移动操作吗？这会实际移动文件。"):
+
+        # 只处理勾选的行（已按当前预览构建）
+        selected = self.result_tree.get_selected()
+        if not selected:
+            messagebox.showwarning(
+                "提示", "没有勾选任何文件。请先预览并勾选要移动的行。")
             return
-        self.stats_var.set("执行中 0/0")
+
+        if not messagebox.askyesno(
+            "确认",
+            f"确定要执行移动操作吗？\n\n将移动 {len(selected)} 个文件。",
+        ):
+            return
+
+        self.stats_var.set(f"执行中 0/{len(selected)}")
         self._clear_log()
         self.app.set_status("执行中…")
         self._working = True
-        threading.Thread(target=self._execute_worker, daemon=True).start()
 
-    def _execute_worker(self) -> None:
+        # 把勾选后的 PlannedOperation 列表直接传给 worker，
+        # 不再重新 load + plan，保证"执行的"= "预览时看到的"
+        threading.Thread(
+            target=self._execute_worker, args=(selected,), daemon=True,
+        ).start()
+
+    def _execute_worker(self, planned: list[PlannedOperation]) -> None:
         try:
             proc = FileProcessor(self._effective_config())
-            results = proc.load_results(self.input_var.get().strip())
-            planned = proc.plan(results)
 
             def on_progress(idx, total, op, status):
                 self._q.put(("progress", (idx, total, op, status)))
@@ -294,6 +309,13 @@ class MoveTab(ttk.Frame):
         idx, total, op, status = payload
         self.stats_var.set(f"执行中 {idx}/{total}")
 
+    def _on_selection_changed(self) -> None:
+        total = len(self._planned)
+        if total == 0:
+            return
+        selected = len(self.result_tree.get_selected())
+        self.stats_var.set(f"共 {total} 个操作，已勾选 {selected} 个")
+
     def _show_planned(self, planned: Optional[list[PlannedOperation]]) -> None:
         self._working = False
         if planned is None:
@@ -302,7 +324,8 @@ class MoveTab(ttk.Frame):
             return
         self._planned = planned
         self.result_tree.set_data(planned)
-        self.stats_var.set(f"共 {len(planned)} 个操作")
+        # 用统一格式（set_data 里触发 on_selection_changed 时也走同一个回调）
+        self._on_selection_changed()
         self.app.set_status("预览完成")
 
     def _finish_move(self, payload: Optional[tuple[int, int, int]]) -> None:

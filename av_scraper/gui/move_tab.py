@@ -108,6 +108,9 @@ class MoveTab(ttk.Frame):
             self,
             height=10,
             columns=[
+                Column("__check__", "", 40,
+                       kind="checkbox", anchor="center",
+                       sortable=False, searchable=False),
                 Column("code", "番号", 130,
                        display=lambda op: op.extracted_code,
                        sort=lambda op: op.extracted_code.lower()),

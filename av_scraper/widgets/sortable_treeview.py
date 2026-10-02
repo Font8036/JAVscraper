@@ -1,14 +1,15 @@
-"""带排序和搜索功能的 Treeview 组件。
+"""带排序、搜索、勾选功能的 Treeview 组件。
 
 设计目标：
 - 数据是"黑盒对象"，组件不感知其结构
 - 通过 Column.display / Column.sort 回调把数据翻译成显示值和排序键
 - 点击表头在 升序 → 降序 → 原始顺序 三态之间循环
 - 搜索框实时过滤：子串匹配全部列 / 单列 / 正则
-- append / set_data / update_row 时保持当前排序与过滤
+- 勾选框列（可选）：Unicode 符号 + 已勾选行高亮
 
-未来扩展预留：
-- 勾选框、导出 CSV、列隐藏等可在现有接口之上平滑加入
+勾选框列的使用：
+    在 columns 里加一项 Column("__check__", "", 40, kind="checkbox")
+    组件自动开启勾选功能，其余列照旧。
 """
 
 from __future__ import annotations
@@ -20,10 +21,13 @@ from tkinter import ttk
 from typing import Any, Callable, Literal, Optional
 
 _AnchorT = Literal["nw", "n", "ne", "w", "center", "e", "sw", "s", "se"]
-
-# 搜索框下拉里用到的两个特殊模式
 _MODE_ALL = "全部列"
 _MODE_REGEX = "正则"
+
+# 勾选框符号
+_SYM_CHECKED = "☑"
+_SYM_UNCHECKED = "☐"
+_SYM_PARTIAL = "▣"
 
 
 @dataclass
@@ -31,12 +35,13 @@ class Column:
     key: str
     header: str
     width: int
-    display: Callable[[Any], str]
+    display: Callable[[Any], str] = lambda _d: ""
     sort: Optional[Callable[[Any], Any]] = None
     anchor: _AnchorT = "w"
     stretch: bool = False
     sortable: bool = True
     searchable: bool = True
+    kind: str = "text"        # "text" / "checkbox"
 
 
 class SortableTreeview(ttk.Frame):
@@ -69,7 +74,7 @@ class SortableTreeview(ttk.Frame):
 
         # 排序状态
         self._sort_column: Optional[str] = None
-        self._sort_direction: str = "original"   # asc / desc / original
+        self._sort_direction: str = "original"
 
         # 搜索状态
         self._filter_text = ""
@@ -77,15 +82,22 @@ class SortableTreeview(ttk.Frame):
         self._mode_var: Optional[tk.StringVar] = None
         self._match_label_var: Optional[tk.StringVar] = None
 
-        # 搜索栏（可选）
+        # 勾选状态
+        self._checkbox_key: Optional[str] = next(
+            (c.key for c in columns if c.kind == "checkbox"), None,
+        )
+        self._selected: set[str] = set()
+
         if searchable:
             self._build_search_bar()
 
-        # 表格
         self._build_tree()
 
         for name, opts in (tag_configure or {}).items():
             self.tree.tag_configure(name, **opts)
+        # 勾选行高亮
+        if self._checkbox_key is not None:
+            self.tree.tag_configure("__checked__", background="#eef4ff")
 
     # ============================================================
     # 构建
@@ -117,10 +129,9 @@ class SortableTreeview(ttk.Frame):
         ).pack(side="left")
 
     def _mode_values(self) -> list[str]:
-        """下拉框选项：全部列 / 各可见列 / 正则。"""
         values = [_MODE_ALL]
         for c in self._columns:
-            if c.header and c.searchable:
+            if c.header and c.searchable and c.kind != "checkbox":
                 values.append(c.header)
         values.append(_MODE_REGEX)
         return values
@@ -131,13 +142,10 @@ class SortableTreeview(ttk.Frame):
             show="headings", height=self._height,
         )
         for c in self._columns:
-            if c.sortable:
-                self.tree.heading(
-                    c.key, text=c.header,
-                    command=lambda key=c.key: self._on_header_click(key),
-                )
-            else:
-                self.tree.heading(c.key, text=c.header)
+            self.tree.heading(
+                c.key, text=c.header,
+                command=lambda key=c.key: self._on_header_click(key),
+            )
             self.tree.column(
                 c.key, width=c.width, anchor=c.anchor,
                 stretch=c.stretch, minwidth=40,
@@ -149,6 +157,10 @@ class SortableTreeview(ttk.Frame):
         self.tree.pack(side="left", fill="both", expand=True)
         vbar.pack(side="right", fill="y")
 
+        if self._checkbox_key is not None:
+            self.tree.bind("<Button-1>", self._on_tree_click, add="+")
+            self._update_headers()
+
     # ============================================================
     # 数据操作
     # ============================================================
@@ -156,11 +168,11 @@ class SortableTreeview(ttk.Frame):
         self._original_data.clear()
         self._visible_data.clear()
         self._data_by_iid.clear()
+        self._selected.clear()
         self._sort_column = None
         self._sort_direction = "original"
         self._filter_text = ""
         if self._search_var is not None:
-            # 避免触发 trace 造成递归
             self._search_var.set("")
         if self._mode_var is not None:
             self._mode_var.set(_MODE_ALL)
@@ -168,19 +180,30 @@ class SortableTreeview(ttk.Frame):
         self._update_headers()
         self._update_match_count()
 
-    def set_data(self, rows: list[Any]) -> None:
+    def set_data(self, rows: list[Any], *, select_all: bool = True) -> None:
         self._original_data = list(rows)
+        if self._checkbox_key is not None:
+            if select_all:
+                self._selected = {self._key(d) for d in rows}
+            else:
+                self._selected = set()
         self._apply_filter_and_sort()
         self._redraw()
         self._update_match_count()
+        self._update_headers()
 
-    def append_row(self, data: Any, *, scroll: bool = True) -> None:
+    def append_row(self, data: Any, *, scroll: bool = True,
+                   select: Optional[bool] = None) -> None:
+        """追加一行。
+
+        select: 勾选列的初始状态。None 时沿用"默认全选"（如果开了勾选列）。
+        """
         self._original_data.append(data)
+        if self._checkbox_key is not None and select is not False:
+            self._selected.add(self._key(data))
 
-        # 过滤或排序状态下，重新计算
         if self._filter_text or self._sort_direction != "original":
             if self._filter_text and not self._match(data, self._filter_text):
-                # 不匹配当前过滤条件，不显示
                 self._update_match_count()
                 return
             self._apply_filter_and_sort()
@@ -192,7 +215,6 @@ class SortableTreeview(ttk.Frame):
                     self.tree.see(iid)
             return
 
-        # 原始顺序：直接追加
         self._visible_data.append(data)
         self._insert_one(data)
         if scroll:
@@ -222,13 +244,110 @@ class SortableTreeview(ttk.Frame):
 
         if self.tree.exists(iid):
             values = tuple(self._render_cell(c, data) for c in self._columns)
-            tags = self._row_tags(data)
+            tags = self._compose_tags(data)
             self.tree.item(iid, values=values, tags=tags)
 
     def see_row(self, data: Any) -> None:
         iid = self._key(data)
         if self.tree.exists(iid):
             self.tree.see(iid)
+
+    # ============================================================
+    # 勾选
+    # ============================================================
+    def is_selected(self, data: Any) -> bool:
+        return self._key(data) in self._selected
+
+    def get_selected(self) -> list[Any]:
+        """返回已勾选的数据列表（按原始顺序）。"""
+        return [d for d in self._original_data
+                if self._key(d) in self._selected]
+
+    def get_selected_visible(self) -> list[Any]:
+        """返回当前可见行中已勾选的数据列表。"""
+        return [d for d in self._visible_data
+                if self._key(d) in self._selected]
+
+    def set_selected(self, data: Any, selected: bool) -> None:
+        iid = self._key(data)
+        if selected:
+            self._selected.add(iid)
+        else:
+            self._selected.discard(iid)
+        self._refresh_display(iid)
+        self._update_headers()
+
+    def set_all_selected(self, selected: bool) -> None:
+        """对所有数据设置勾选状态。"""
+        if selected:
+            self._selected = {self._key(d) for d in self._original_data}
+        else:
+            self._selected.clear()
+        self._redraw()
+        self._update_match_count()
+        self._update_headers()
+
+    def select_all_visible(self) -> None:
+        """把当前可见的行全部勾选。"""
+        for d in self._visible_data:
+            self._selected.add(self._key(d))
+        self._redraw()
+        self._update_headers()
+
+    def deselect_all_visible(self) -> None:
+        for d in self._visible_data:
+            self._selected.discard(self._key(d))
+        self._redraw()
+        self._update_headers()
+
+    # ---------- 点击处理 ----------
+    def _on_tree_click(self, event) -> Optional[str]:
+        # 判断是不是点在勾选列上
+        col_id = self.tree.identify_column(event.x)
+        if not col_id:
+            return None
+        try:
+            idx = int(col_id[1:]) - 1
+        except ValueError:
+            return None
+        cols = list(self.tree["columns"])
+        if idx < 0 or idx >= len(cols):
+            return None
+        clicked_key = cols[idx]
+        if clicked_key != self._checkbox_key:
+            return None
+
+        region = self.tree.identify_region(event.x, event.y)
+        if region != "cell":
+            return None
+
+        iid = self.tree.identify_row(event.y)
+        if not iid:
+            return None
+
+        # 切换这一行的勾选状态
+        if iid in self._selected:
+            self._selected.discard(iid)
+        else:
+            self._selected.add(iid)
+        self._refresh_display(iid)
+        self._update_headers()
+        return "break"      # 阻止默认行选择，让复选框表现得像"复选框"
+
+    def _refresh_display(self, iid: str) -> None:
+        data = self._data_by_iid.get(iid)
+        if data is None:
+            return
+        values = tuple(self._render_cell(c, data) for c in self._columns)
+        tags = self._compose_tags(data)
+        self.tree.item(iid, values=values, tags=tags)
+
+    def _compose_tags(self, data: Any) -> tuple:
+        base = list(self._row_tags(data))
+        if (self._checkbox_key is not None
+                and self._key(data) in self._selected):
+            base.append("__checked__")
+        return tuple(base)
 
     # ============================================================
     # 排序
@@ -253,6 +372,15 @@ class SortableTreeview(ttk.Frame):
         self._update_headers()
 
     def _on_header_click(self, key: str) -> None:
+        col = self._columns_by_key.get(key)
+        if col is None:
+            return
+        if col.kind == "checkbox":
+            self._toggle_all_visible()
+            return
+        if not col.sortable:
+            return
+
         if key == self._sort_column:
             if self._sort_direction == "asc":
                 self._sort_direction = "desc"
@@ -273,13 +401,25 @@ class SortableTreeview(ttk.Frame):
         if self._on_sort_changed:
             self._on_sort_changed(self._sort_column, self._sort_direction)
 
+    def _toggle_all_visible(self) -> None:
+        if not self._visible_data:
+            return
+        visible_iids = [self._key(d) for d in self._visible_data]
+        all_checked = all(iid in self._selected for iid in visible_iids)
+        if all_checked:
+            for iid in visible_iids:
+                self._selected.discard(iid)
+        else:
+            for iid in visible_iids:
+                self._selected.add(iid)
+        self._redraw()
+        self._update_headers()
+
     def _apply_filter_and_sort(self) -> None:
-        # 1. 过滤
         base = list(self._original_data)
         if self._filter_text:
             base = [d for d in base if self._match(d, self._filter_text)]
 
-        # 2. 排序
         if self._sort_direction == "original" or self._sort_column is None:
             self._visible_data = base
         else:
@@ -290,12 +430,26 @@ class SortableTreeview(ttk.Frame):
 
     def _update_headers(self) -> None:
         for c in self._columns:
-            if not c.sortable:
+            if c.kind == "checkbox":
+                self.tree.heading(c.key, text=self._header_check_symbol())
                 continue
             text = c.header
-            if c.key == self._sort_column and self._sort_direction != "original":
+            if (c.sortable and c.key == self._sort_column
+                    and self._sort_direction != "original"):
                 text += " ▼" if self._sort_direction == "desc" else " ▲"
             self.tree.heading(c.key, text=text)
+
+    def _header_check_symbol(self) -> str:
+        visible_iids = [self._key(d) for d in self._visible_data]
+        total = len(visible_iids)
+        if total == 0:
+            return _SYM_UNCHECKED
+        checked = sum(1 for iid in visible_iids if iid in self._selected)
+        if checked == 0:
+            return _SYM_UNCHECKED
+        if checked == total:
+            return _SYM_CHECKED
+        return _SYM_PARTIAL
 
     # ============================================================
     # 搜索
@@ -307,14 +461,15 @@ class SortableTreeview(ttk.Frame):
         self._apply_filter_and_sort()
         self._redraw()
         self._update_match_count()
+        self._update_headers()
 
     def _on_mode_changed(self, _e=None) -> None:
         self._apply_filter_and_sort()
         self._redraw()
         self._update_match_count()
+        self._update_headers()
 
     def _match(self, data: Any, keyword: str) -> bool:
-        # 用户自定义匹配优先
         if self._custom_filter_func is not None:
             return bool(self._custom_filter_func(data, keyword))
 
@@ -325,17 +480,19 @@ class SortableTreeview(ttk.Frame):
                 pat = re.compile(keyword, re.IGNORECASE)
             except re.error:
                 return False
-            return any(pat.search(self._render_cell(c, data)) for c in self._columns)
+            return any(pat.search(self._render_cell(c, data))
+                       for c in self._columns if c.kind != "checkbox")
 
         if mode == _MODE_ALL:
             kw = keyword.lower()
             return any(
-                kw in self._render_cell(c, data).lower() for c in self._columns
+                kw in self._render_cell(c, data).lower()
+                for c in self._columns if c.kind != "checkbox"
             )
 
-        # 某一列
         col = next(
-            (c for c in self._columns if c.header == mode and c.searchable),
+            (c for c in self._columns
+             if c.header == mode and c.searchable and c.kind != "checkbox"),
             None,
         )
         if col is None:
@@ -363,13 +520,15 @@ class SortableTreeview(ttk.Frame):
 
     def _insert_one(self, data: Any) -> None:
         values = tuple(self._render_cell(c, data) for c in self._columns)
-        tags = self._row_tags(data)
+        tags = self._compose_tags(data)
         iid = self._key(data)
         self.tree.insert("", "end", iid=iid, values=values, tags=tags)
         self._data_by_iid[iid] = data
 
-    @staticmethod
-    def _render_cell(col: Column, data: Any) -> str:
+    def _render_cell(self, col: Column, data: Any) -> str:
+        if col.kind == "checkbox":
+            iid = self._key(data)
+            return _SYM_CHECKED if iid in self._selected else _SYM_UNCHECKED
         try:
             v = col.display(data)
         except Exception:

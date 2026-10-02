@@ -19,6 +19,7 @@ class PlannedOperation:
     src: Path
     dst: Path
     status: str  # "move" | "rename" | "skip" | "overwrite"
+    extracted_code: str = ""   # ← 新增
 
 
 @dataclass
@@ -58,6 +59,7 @@ class FileProcessor:
                 src=src,
                 dst=final if final else target,
                 status=status,
+                extracted_code=code,
             ))
             taken.add(str(final if final else target))
 

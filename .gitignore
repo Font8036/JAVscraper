@@ -10,6 +10,7 @@ config.json
 log/
 .vscode/
 *.spec
+*.ffs_db
 # 生成的文件
 files/
 files_*/

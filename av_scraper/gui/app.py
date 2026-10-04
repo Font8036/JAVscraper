@@ -66,11 +66,32 @@ class App(tk.Tk):
 
         self._load_plugins(nb)   # ★
 
+        status_bar = ttk.Frame(self)
+        status_bar.pack(fill="x", side="bottom")
+
         self.status_var = tk.StringVar(value="就绪")
         ttk.Label(
-            self, textvariable=self.status_var, anchor="w",
+            status_bar, textvariable=self.status_var, anchor="w",
             relief="sunken", padding=(6, 2),
-        ).pack(fill="x", side="bottom")
+        ).pack(side="left", fill="x", expand=True)
+
+        ttk.Button(
+            status_bar, text="关于", width=6,
+            command=self._show_about,
+        ).pack(side="right", padx=(2, 2))
+
+    def _show_about(self) -> None:
+        from .dialogs import show_about
+        from .. import __version__
+
+        # 收集已加载插件
+        plugins: list[tuple[str, str]] = []
+        for plugin in getattr(self, "_loaded_plugins", []):
+            name = getattr(plugin, "name", "?")
+            version = getattr(plugin, "version", "?")
+            plugins.append((name, version))
+
+        show_about(self, plugins=plugins)
 
     def set_status(self, text: str) -> None:
         self.status_var.set(text)
@@ -88,6 +109,7 @@ class App(tk.Tk):
             pass
 
     def _load_plugins(self, notebook) -> None:
+        self._loaded_plugins = []
         specs = discover_plugins()
         if not specs:
             return
@@ -132,6 +154,7 @@ class App(tk.Tk):
             if frame is not None:
                 notebook.add(frame, text=f"{tab_index}-{plugin.name}")
                 tab_index += 1
+                self._loaded_plugins.append(plugin)
 
     def _make_plugin_error_tab(self, spec, extra: str = ""):
         frame = ttk.Frame(self, padding=20)

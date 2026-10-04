@@ -22,7 +22,7 @@ from av_scraper.widgets import Column, SortableTreeview
 from av_scraper.plugin_api import PluginContext
 from .notify import play_beep, show_toast
 from .parse import is_matched
-from .config import JavdbConfig
+from .config import JavdbConfig, normalize_base_url
 from .fetch import load_targets, save_csv, scrape_javdb
 from .report import build_excel
 
@@ -104,6 +104,12 @@ class JavdbPlugin:
         opts = ttk.LabelFrame(root, text="参数", padding=8)
         opts.pack(fill="x", pady=(0, 6))
 
+        row0 = ttk.Frame(opts); row0.pack(fill="x", pady=2)
+        ttk.Label(row0, text="站点地址:").pack(side="left")
+        self._var_base_url = tk.StringVar()
+        ttk.Entry(row0, textvariable=self._var_base_url).pack(
+            side="left", fill="x", expand=True, padx=4)
+        
         row1 = ttk.Frame(opts); row1.pack(fill="x", pady=2)
         self._var_show_browser = tk.BooleanVar()
         ttk.Checkbutton(
@@ -270,6 +276,7 @@ class JavdbPlugin:
         self._var_csv.set(cfg.output_csv)
         self._var_excel.set(cfg.output_excel)
         self._var_state.set(cfg.state_file)
+        self._var_base_url.set(cfg.base_url)
 
         self._var_show_browser.set(cfg.show_browser)
         self._var_channel.set(cfg.browser_channel)
@@ -300,6 +307,7 @@ class JavdbPlugin:
             output_csv=self._var_csv.get().strip(),
             output_excel=self._var_excel.get().strip(),
             state_file=self._var_state.get().strip(),
+            base_url=normalize_base_url(self._var_base_url.get()),
             show_browser=bool(self._var_show_browser.get()),
             browser_channel=self._var_channel.get().strip() or "msedge",
             request_delay=_f(self._var_delay.get(), 1.0),

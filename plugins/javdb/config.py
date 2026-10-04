@@ -22,6 +22,7 @@ class JavdbConfig:
     state_file: str = ""
 
     # 运行参数
+    base_url: str = "https://javdb.com/"
     show_browser: bool = True
     browser_channel: str = "msedge"
     request_delay: float = 1.0
@@ -39,6 +40,7 @@ class JavdbConfig:
     def load(cls, path: Path) -> "JavdbConfig":
         if not path.exists():
             cfg = cls()
+            cfg.base_url = normalize_base_url(cfg.base_url) 
             try:
                 cfg.save(path)
             except OSError:
@@ -50,7 +52,9 @@ class JavdbConfig:
             return cls()
         known = {f.name for f in dataclasses.fields(cls)}
         filtered = {k: v for k, v in data.items() if k in known}
-        return cls(**filtered)
+        cfg = cls(**filtered)
+        cfg.base_url = normalize_base_url(cfg.base_url)       # ← 新增
+        return cfg
 
     def save(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -58,3 +62,14 @@ class JavdbConfig:
             json.dumps(dataclasses.asdict(self), ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+
+def normalize_base_url(url: str) -> str:
+    """把用户输入的站点地址规范化为带协议、带结尾斜杠的形式。"""
+    url = (url or "").strip()
+    if not url:
+        return "https://javdb.com/"
+    if not url.startswith(("http://", "https://")):
+        url = "https://" + url
+    if not url.endswith("/"):
+        url += "/"
+    return url

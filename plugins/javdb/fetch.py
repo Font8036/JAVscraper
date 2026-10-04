@@ -113,7 +113,7 @@ async def scrape_javdb(
         try:
             # 首次打开主页，网络慢，给 5 倍超时
             on_log(f"正在打开主页（超时 {config.page_timeout * 5 // 1000} 秒）…")
-            await page.goto("https://javdb.com/", wait_until="load", timeout=config.page_timeout * 5)
+            await page.goto(config.base_url, wait_until="load", timeout=config.page_timeout * 5)
             on_log(f"已打开网页: {page.url}")
 
             for idx, keyword in enumerate(targets):
@@ -181,7 +181,7 @@ async def scrape_javdb(
                 except Exception:
                     try:
                         await page.goto(
-                            "https://javdb.com/", wait_until="load")
+                            config.base_url, wait_until="load")
                     except Exception:
                         pass
 

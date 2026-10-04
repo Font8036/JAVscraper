@@ -31,3 +31,8 @@ class Plugin(Protocol):
     def create_tab(self, notebook: Any) -> Any:
         """返回一个 tkinter Frame；返回 None 则不添加标签页。"""
         ...
+
+    def config_pages(self) -> list[Any]:
+        """返回本插件提供的配置页（list[ConfigPage]）。
+        可选实现——不实现则插件不参与统一配置窗口。"""
+        ...

@@ -71,6 +71,59 @@ class JavdbPlugin:
         return root
 
     # ============================================================
+    # 统一配置窗口支持
+    # ============================================================
+    def config_pages(self):
+        from av_scraper.gui.config_window import ConfigPage
+        from av_scraper.widgets import ConfigForm
+
+        forms: dict[str, ConfigForm] = {}
+
+        def build(parent):
+            frame = ttk.Frame(parent)
+            form = ConfigForm(frame, JavdbConfig)
+            form.pack(fill="both", expand=True)
+            forms["main"] = form
+
+            extra = ttk.Frame(frame)
+            extra.pack(fill="x", pady=(8, 0))
+            ttk.Button(
+                extra, text="导入浏览器 Cookie",
+                command=self._on_import_cookies,
+            ).pack(side="left")
+            return frame
+
+        def load(cfg):
+            forms["main"].load_from(cfg)
+
+        def collect():
+            return forms["main"].collect()
+
+        def save(cfg):
+            cfg.save(self._config_path)
+            self._config = cfg
+            # 插件自身的 Tab 表单同步刷新
+            if self._form is not None:
+                self._form.load_from(cfg)
+
+        def current():
+            return self._config
+
+        def default():
+            return JavdbConfig()
+
+        return [ConfigPage(
+            title="JavDB 刮削",
+            build=build, load=load, collect=collect,
+            save=save, current=current, default=default,
+        )]
+
+    def sync_from_config(self) -> None:
+        """配置窗口应用后由核心调用，刷新插件 Tab 表单。"""
+        if self._form is not None:
+            self._form.load_from(self._config)
+
+    # ============================================================
     # UI 构建
     # ============================================================
     def _build(self, root: ttk.Frame) -> None:
@@ -187,7 +240,7 @@ class JavdbPlugin:
 
         # -------- 日志 --------
         ttk.Label(root, text="日志:").pack(anchor="w", pady=(6, 0))
-        self._log = tk.Text(root, height=8, wrap="none", state="disabled")
+        self._log = tk.Text(root, height=10, wrap="none", state="disabled")
         self._log.pack(fill="both")
 
     # ============================================================

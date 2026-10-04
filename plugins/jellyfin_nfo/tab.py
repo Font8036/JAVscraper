@@ -57,6 +57,47 @@ class JellyfinNfoPlugin:
         root.after(80, self._poll)
         return root
 
+    def config_pages(self):
+        from av_scraper.gui.config_window import ConfigPage
+        from av_scraper.widgets import ConfigForm
+
+        forms: dict[str, ConfigForm] = {}
+
+        def build(parent):
+            frame = ttk.Frame(parent)
+            form = ConfigForm(frame, JellyfinNfoConfig)
+            form.pack(fill="both", expand=True)
+            forms["main"] = form
+            return frame
+
+        def load(cfg):
+            forms["main"].load_from(cfg)
+
+        def collect():
+            return forms["main"].collect()
+
+        def save(cfg):
+            cfg.save(self._config_path)
+            self._config = cfg
+            if self._form is not None:
+                self._form.load_from(cfg)
+
+        def current():
+            return self._config
+
+        def default():
+            return JellyfinNfoConfig()
+
+        return [ConfigPage(
+            title="Jellyfin NFO",
+            build=build, load=load, collect=collect,
+            save=save, current=current, default=default,
+        )]
+
+    def sync_from_config(self) -> None:
+        if self._form is not None:
+            self._form.load_from(self._config)
+
     # ============================================================
     # UI
     # ============================================================
@@ -125,8 +166,8 @@ class JellyfinNfoPlugin:
 
         # ---- 日志 ----
         ttk.Label(root, text="日志:").pack(anchor="w", pady=(6, 0))
-        self._log = tk.Text(root, height=8, wrap="none", state="disabled")
-        self._log.pack(fill="both", expand=True)
+        self._log = tk.Text(root, height=10, wrap="none", state="disabled")
+        self._log.pack(fill="both")
 
     # ============================================================
     # 配置保存

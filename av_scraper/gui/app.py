@@ -2,21 +2,23 @@
 
 from __future__ import annotations
 
-import tkinter as tk
+import dataclasses
 import logging
-
+import tkinter as tk
 from pathlib import Path
 from tkinter import ttk
-from ..config import AppConfig
-from .config_tab import ConfigTab
-from .move_tab import MoveTab
-from .scan_tab import ScanTab
 from dataclasses import replace
+
+from ..config import AppConfig, ProcessorConfig, ScraperConfig
 from ..paths import log_dir
 from ..plugin_api import PluginContext
 from ..plugin_loader import discover_plugins, instantiate_plugin
+from ..widgets import ConfigForm
+from .config_window import ConfigPage, ConfigWindow
+from .move_tab import MoveTab
+from .scan_tab import ScanTab
 
-logger = logging.getLogger(__name__)   # ← 加这一行
+logger = logging.getLogger(__name__)
 
 class App(tk.Tk):
 
@@ -58,11 +60,9 @@ class App(tk.Tk):
 
         self.scan_tab = ScanTab(nb, self)
         self.move_tab = MoveTab(nb, self)
-        self.config_tab = ConfigTab(nb, self)
         self.notebook = nb
         nb.add(self.scan_tab, text="1-扫描")
         nb.add(self.move_tab, text="2-移动")
-        nb.add(self.config_tab, text="3-配置")
 
         self._load_plugins(nb)   # ★
 
@@ -79,6 +79,10 @@ class App(tk.Tk):
             status_bar, text="关于", width=6,
             command=self._show_about,
         ).pack(side="right", padx=(2, 2))
+        ttk.Button(
+            status_bar, text="配置", width=6,
+            command=self._open_config_window,
+        ).pack(side="right")
 
     def _show_about(self) -> None:
         from .dialogs import show_about
@@ -100,6 +104,14 @@ class App(tk.Tk):
     def refresh_from_config(self) -> None:
         self.scan_tab.sync_from_config()
         self.move_tab.sync_from_config()
+        for plugin in getattr(self, "_loaded_plugins", []):
+            sync = getattr(plugin, "sync_from_config", None)
+            if callable(sync):
+                try:
+                    sync()
+                except Exception:
+                    logger.exception("插件 %s 同步配置失败",
+                                     getattr(plugin, "name", "?"))
 
     def _save_config(self) -> None:
         """供插件调用：把当前 app_config 写回磁盘。"""
@@ -123,7 +135,7 @@ class App(tk.Tk):
             save_config=self._save_config,
         )
 
-        tab_index = 4
+        tab_index = 3
         for spec in specs:
             if spec.error:
                 notebook.add(
@@ -174,3 +186,88 @@ class App(tk.Tk):
                 frame, text=hint, justify="left", foreground="#444",
             ).pack(anchor="w", pady=(12, 0))
         return frame
+
+    # ============================================================
+    # 配置窗口
+    # ============================================================
+    def _open_config_window(self) -> None:
+        pages = self._core_config_pages()
+
+        from typing import cast
+
+        for plugin in getattr(self, "_loaded_plugins", []):
+            getter = getattr(plugin, "config_pages", None)
+            if not callable(getter):
+                continue
+            try:
+                extra = cast("list[ConfigPage]", getter())
+                pages.extend(extra)
+            except Exception:
+                logger.exception("插件 %s 提供配置页失败", getattr(plugin, "name", "?"))
+
+        try:
+            ConfigWindow(self, pages)
+        except Exception:
+            logger.exception("打开配置窗口失败")
+
+    def _core_config_pages(self) -> list[ConfigPage]:
+        """核心配置页：刮削器 / 文件处理器 / 应用 三段叠在一个 Tab 里。"""
+        forms: dict[str, ConfigForm] = {}
+
+        def build(parent: ttk.Frame) -> ttk.Frame:
+            frame = ttk.Frame(parent)
+            sections = [
+                ("scraper", "刮削器", ScraperConfig),
+                ("processor", "文件处理器", ProcessorConfig),
+                ("app", "应用", AppConfig),
+            ]
+            for key, title, cls in sections:
+                group = ttk.LabelFrame(frame, text=title, padding=8)
+                group.pack(fill="x", pady=6)
+                form = ConfigForm(group, cls)
+                form.pack(fill="x")
+                forms[key] = form
+            return frame
+
+        def load(cfg: AppConfig) -> None:
+            forms["scraper"].load_from(cfg.scraper)
+            forms["processor"].load_from(cfg.processor)
+            forms["app"].load_from(cfg)
+
+        def collect() -> AppConfig:
+            new = AppConfig()
+            new.scraper = forms["scraper"].collect()
+            new.processor = forms["processor"].collect()
+            new_app = forms["app"].collect()
+            for f in dataclasses.fields(AppConfig):
+                if f.name in ("scraper", "processor"):
+                    continue
+                setattr(new, f.name, getattr(new_app, f.name))
+            return new
+
+        def save(cfg: AppConfig) -> None:
+            # 原地更新，保持 self.app_config 的对象身份（插件持有引用）
+            self.app_config.scraper = cfg.scraper
+            self.app_config.processor = cfg.processor
+            for f in dataclasses.fields(AppConfig):
+                if f.name in ("scraper", "processor"):
+                    continue
+                setattr(self.app_config, f.name, getattr(cfg, f.name))
+            self.app_config.save(self.config_path)
+            self.refresh_from_config()
+
+        def current() -> AppConfig:
+            return self.app_config
+
+        def default() -> AppConfig:
+            return AppConfig()
+
+        return [ConfigPage(
+            title="核心配置",
+            build=build,
+            load=load,
+            collect=collect,
+            save=save,
+            current=current,
+            default=default,
+        )]

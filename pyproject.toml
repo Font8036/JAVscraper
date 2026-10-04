@@ -44,7 +44,7 @@ dependencies = []
 # 装完还需要执行一次：playwright install msedge
 javdb = [
     "playwright>=1.40",
-    "pandas>=2.0",
+    "openpyxl>=3.1",
     "xlsxwriter>=3.1",
     "httpx>=0.27",
     "Pillow>=10.0",
@@ -58,7 +58,6 @@ jellyfin = [
 # 完整版：核心 + 所有插件依赖
 full = [
     "playwright>=1.40",
-    "pandas>=2.0",
     "xlsxwriter>=3.1",
     "httpx>=0.27",
     "Pillow>=10.0",
@@ -75,7 +74,6 @@ dev = [
 # 全部：完整版 + 开发工具
 all = [
     "playwright>=1.40",
-    "pandas>=2.0",
     "xlsxwriter>=3.1",
     "httpx>=0.27",
     "Pillow>=10.0",

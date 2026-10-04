@@ -121,6 +121,7 @@ class ConfigForm(ttk.Frame):
     def _render_single(self, f, label_width: int) -> None:
         row = ttk.Frame(self)
         row.pack(fill="x", pady=2)
+        self._row_frames[f.name] = row                  # ← 这一行
 
         kind = f.metadata.get("kind", "str")
 
@@ -255,24 +256,44 @@ class ConfigForm(ttk.Frame):
         ttk.Entry(parent, textvariable=var, width=entry_width).pack(
             side="left", fill="x", expand=True, padx=4)
         if kind in ("dir", "file", "save"):
+            ext = f.metadata.get("ext")
             ttk.Button(
                 parent, text="浏览…",
-                command=lambda v=var, k=kind: self._browse(v, k),
+                command=lambda v=var, k=kind, e=ext: self._browse(v, k, e),
             ).pack(side="left")
         return var
 
-    def _browse(self, var: tk.StringVar, kind: str) -> None:
+    def _browse(self, var: tk.StringVar, kind: str,
+                ext: Optional[str] = None) -> None:
         cur = var.get().strip()
+
         if kind == "dir":
             picked = filedialog.askdirectory(initialdir=cur or None)
+
         elif kind == "file":
             init = str(Path(cur).parent) if cur else None
-            picked = filedialog.askopenfilename(initialdir=init)
+            kwargs: dict[str, Any] = {"initialdir": init}
+            if ext:
+                kwargs["filetypes"] = [
+                    (f"{ext.lstrip('.').upper()} 文件", f"*{ext}"),
+                    ("所有文件", "*.*"),
+                ]
+            picked = filedialog.askopenfilename(**kwargs)
+
         elif kind == "save":
             init = str(Path(cur).parent) if cur else None
-            picked = filedialog.asksaveasfilename(initialdir=init)
+            kwargs = {"initialdir": init}
+            if ext:
+                kwargs["defaultextension"] = ext
+                kwargs["filetypes"] = [
+                    (f"{ext.lstrip('.').upper()} 文件", f"*{ext}"),
+                    ("所有文件", "*.*"),
+                ]
+            picked = filedialog.asksaveasfilename(**kwargs)
+
         else:
             return
+
         if picked:
             var.set(picked)
 
@@ -312,7 +333,14 @@ class ConfigForm(ttk.Frame):
 
     def get_row_frame(self, field_name: str) -> Optional[ttk.Frame]:
         """返回指定字段所在的行 Frame。可往里添加额外的按钮等控件。"""
-        return self._row_frames.get(field_name)
+        row = self._row_frames.get(field_name)
+        if row is None:
+            import logging
+            logging.getLogger(__name__).warning(
+                "get_row_frame: 未找到字段 %r 的行（是否漏记 _row_frames？）",
+                field_name,
+            )
+        return row
 
     # ---------- widget 读写 ----------
     @staticmethod

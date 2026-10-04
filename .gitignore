@@ -11,6 +11,7 @@ log/
 .vscode/
 *.spec
 *.ffs_db
+pyi-archive_viewer
 # 生成的文件
 files/
 files_*/

@@ -23,86 +23,121 @@ _COVER_NAMING_CHOICES = [
 @dataclass
 class JellyfinNfoConfig:
     # ---- 路径 ----
-    input_excel: str = field(default="", metadata={
-        "label": "输入 Excel", "kind": "file",
-        "tooltip": "刮削结果的 Excel（通常是 JavDB 插件生成的）。",
-    })
-    movie_root: str = field(default="", metadata={
-        "label": "电影文件目录", "kind": "dir",
-        "tooltip": "待处理的电影文件夹根目录，每个子文件夹名应为番号。",
-    })
-    cover_source_dir: str = field(default="", metadata={
-        "label": "封面源目录", "kind": "dir",
-        "tooltip": "从 Excel 提取的封面保存到哪里；生成 NFO 时从这里复制封面。",
-    })
+    input_excel: str = field(
+        default="", metadata={
+            "label": "输入 Excel", "kind": "file",
+            "ext": ".xlsx",                   # ← 新增
+            "tooltip": "刮削结果的 Excel（通常是 JavDB 插件生成的）。",
+        }
+    )
+    movie_root: str = field(
+        default="", metadata={
+            "label": "电影文件目录", "kind": "dir",
+            "tooltip": "待处理的电影文件夹根目录，每个子文件夹名应为番号。",
+        }
+    )
+    cover_source_dir: str = field(
+        default="", metadata={
+            "label": "封面源目录", "kind": "dir",
+            "tooltip": "从 Excel 提取的封面保存到哪里；生成 NFO 时从这里复制封面。",
+        }
+    )
 
     # ---- Excel 解析 ----
-    sheet_index: int = field(default=1, metadata={
-        "label": "工作表序号", "kind": "int",
-        "row_group": "excel_pos",
-        "tooltip": "第几个工作表（从 1 开始）。",
-    })
-    header_row: int = field(default=1, metadata={
-        "label": "列名所在行", "kind": "int",
-        "row_group": "excel_pos",
-        "tooltip": "列名在第几行。",
-    })
+    sheet_index: int = field(
+        default=1, metadata={
+            "label": "工作表序号", "kind": "int",
+            "row_group": "excel_pos",
+            "tooltip": "第几个工作表（从 1 开始）。",
+        }
+    )
+    header_row: int = field(
+        default=1, metadata={
+            "label": "列名所在行", "kind": "int",
+            "row_group": "excel_pos",
+            "tooltip": "列名在第几行。",
+        }
+    )
 
-    code_column: str = field(default="番号", metadata={
-        "label": "番号", "kind": "str", "width": 7,
-        "row_group": "excel_cols",
-    })
-    cover_column: str = field(default="封面", metadata={
-        "label": "封面", "kind": "str", "width": 7,
-        "row_group": "excel_cols",
-    })
-    title_column: str = field(default="标题", metadata={
-        "label": "标题", "kind": "str", "width": 7,
-        "row_group": "excel_cols",
-    })
-    actor_columns: str = field(default="演员", metadata={
-        "label": "演员", "kind": "str", "width": 8,
-        "row_group": "excel_cols",
-        "tooltip": "支持多列，用 , 分隔。",
-    })
-    rating_columns: str = field(default="评分", metadata={
-        "label": "评分", "kind": "str", "width": 8,
-        "row_group": "excel_cols",
-    })
-    genre_columns: str = field(default="类别", metadata={
-        "label": "类别", "kind": "str", "width": 8,
-        "row_group": "excel_cols",
-    })
-    personal_comment_columns: str = field(default="个人评论", metadata={
-        "label": "个人评论", "kind": "str", "width": 10,
-        "row_group": "excel_cols",
-    })
-    user_comment_columns: str = field(default="网友评论", metadata={
-        "label": "网友评论", "kind": "str", "width": 10,
-        "row_group": "excel_cols",
-    })
+    code_column: str = field(
+        default="番号", metadata={
+            "label": "番号", "kind": "str", "width": 7,
+            "row_group": "excel_cols",
+        }
+    )
+    cover_column: str = field(
+        default="封面", metadata={
+            "label": "封面", "kind": "str", "width": 7,
+            "row_group": "excel_cols",
+        }
+    )
+    title_column: str = field(
+        default="标题", metadata={
+            "label": "标题", "kind": "str", "width": 7,
+            "row_group": "excel_cols",
+        }
+    )
+    actor_columns: str = field(
+        default="演员", metadata={
+            "label": "演员", "kind": "str", "width": 8,
+            "row_group": "excel_cols",
+            "tooltip": "支持多列，用 , 分隔。",
+        }
+    )
+    rating_columns: str = field(
+        default="评分", metadata={
+            "label": "评分", "kind": "str", "width": 8,
+            "row_group": "excel_cols",
+        }
+    )
+    genre_columns: str = field(
+        default="类别", metadata={
+            "label": "类别", "kind": "str", "width": 8,
+            "row_group": "excel_cols",
+        }
+    )
+    personal_comment_columns: str = field(
+        default="个人评论", metadata={
+            "label": "个人评论", "kind": "str", "width": 10,
+            "row_group": "excel_cols",
+        }
+    )
+    user_comment_columns: str = field(
+        default="网友评论", metadata={
+            "label": "网友评论", "kind": "str", "width": 10,
+            "row_group": "excel_cols",
+        }
+    )
 
     # ---- NFO 选项 ----
-    nfo_mode: str = field(default="每个视频生成同名 NFO", metadata={
-        "label": "NFO 模式", "kind": "choice",
-        "choices": _NFO_MODE_CHOICES,
-        "row_group": "nfo_opts",
-        "tooltip": "每个视频生成同名 NFO；或统一生成 movie.nfo；或两者都生成。",
-    })
-    cover_naming: str = field(default="两种都复制", metadata={
-        "label": "封面命名", "kind": "choice",
-        "choices": _COVER_NAMING_CHOICES,
-        "row_group": "nfo_opts",
-        "tooltip": "把封面复制到电影文件夹时的命名方式。",
-    })
-    copy_cover: bool = field(default=True, metadata={
-        "label": "复制封面", "kind": "bool",
-        "row_group": "nfo_switches",
-    })
-    overwrite_existing: bool = field(default=True, metadata={
-        "label": "覆盖已有 NFO", "kind": "bool",
-        "row_group": "nfo_switches",
-    })
+    nfo_mode: str = field(
+        default="每个视频生成同名 NFO", metadata={
+            "label": "NFO 模式", "kind": "choice",
+            "choices": _NFO_MODE_CHOICES,
+            "row_group": "nfo_opts",
+            "tooltip": "每个视频生成同名 NFO；或统一生成 movie.nfo；或两者都生成。",
+        }
+    )
+    cover_naming: str = field(
+        default="与视频同名", metadata={
+            "label": "封面命名", "kind": "choice",
+            "choices": _COVER_NAMING_CHOICES,
+            "row_group": "nfo_opts",
+            "tooltip": "把封面复制到电影文件夹时的命名方式。",
+        }
+    )
+    copy_cover: bool = field(
+        default=True, metadata={
+            "label": "复制封面", "kind": "bool",
+            "row_group": "nfo_switches",
+        }
+    )
+    overwrite_existing: bool = field(
+        default=True, metadata={
+            "label": "覆盖已有 NFO", "kind": "bool",
+            "row_group": "nfo_switches",
+        }
+    )
 
     # ---- 历史（隐藏）----
     recent_input_excels: list = field(

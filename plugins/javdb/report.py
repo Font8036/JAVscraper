@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Callable, Optional
 
-import pandas as pd
+import csv
 import xlsxwriter
 
 try:
@@ -30,17 +30,27 @@ def build_excel(
 ) -> None:
     log = on_log or (lambda s: None)
 
-    df = pd.read_csv(input_csv, encoding="utf-8-sig", dtype=str)
-    df = df.fillna("")                          # ← 新增：把 NaN 全部转成空字符串
-    log(f"成功读取数据，共 {len(df)} 条记录")
-    df = df.reset_index(drop=True)
+    input_path = Path(input_csv)
+    if not input_path.exists():
+        raise FileNotFoundError(f"CSV 不存在：{input_path}")
+
+    with open(input_path, "r", encoding="utf-8-sig", newline="") as f:
+        reader = csv.DictReader(f)
+        rows = list(reader)
+        fieldnames = reader.fieldnames or []
+
+    log(f"成功读取数据，共 {len(rows)} 条记录")
 
     required = ["链接", "番号", "名称", "信息", "评论"]
     for col in required:
-        if col not in df.columns:
+        if col not in fieldnames:
             raise ValueError(f"输入文件缺少必要的列：{col}")
 
-    records = [parse_row(row.to_dict()) for _, row in df.iterrows()]
+    # 空值统一成空字符串（DictReader 给的是 None 或 ""）
+    def _clean_row(r: dict) -> dict:
+        return {k: ("" if v is None else v) for k, v in r.items()}
+
+    records = [parse_row(_clean_row(r)) for r in rows]
 
     cover_dir = Path(cover_dir)
     output_excel = Path(output_excel)

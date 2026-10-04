@@ -37,6 +37,7 @@ class JavdbConfig:
         default="",
         metadata={
             "label": "输入 Excel", "kind": "file",
+            "ext": ".xlsx",                   # ← 新增：过滤对话框
             "tooltip": "待爬取的番号清单，第一列一行一个。",
         },
     )
@@ -51,6 +52,7 @@ class JavdbConfig:
         default="",
         metadata={
             "label": "输出 CSV", "kind": "save",
+            "ext": ".csv",                    # ← 新增
             "tooltip": "爬取结果的中间文件，生成 Excel 时会读它。",
         },
     )
@@ -58,6 +60,7 @@ class JavdbConfig:
         default="",
         metadata={
             "label": "输出 Excel", "kind": "save",
+            "ext": ".xlsx",                   # ← 新增
             "tooltip": "最终 Excel 报告的保存路径。",
         },
     )
@@ -65,6 +68,7 @@ class JavdbConfig:
         default="",
         metadata={
             "label": "登录状态", "kind": "save",
+            "ext": ".json",                   # ← 新增
             "tooltip": "javdb 的登录状态保存路径。\n"
                        "可点右侧『导入浏览器 Cookie』从浏览器导出后写入。",
         },

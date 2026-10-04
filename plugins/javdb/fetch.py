@@ -16,7 +16,9 @@ from pathlib import Path
 from typing import Callable, Optional
 from pathlib import Path
 import httpx
-import pandas as pd
+# 新增
+import csv
+from openpyxl import load_workbook
 from playwright.async_api import async_playwright
 
 from .config import JavdbConfig
@@ -54,26 +56,26 @@ def load_targets(excel_path: str | Path) -> list[str]:
     - 空字符串 / 纯空白
     - 字符串形式的 "nan" / "null" / "none" 等
     """
-    df = pd.read_excel(excel_path, header=None, dtype=str)
-    raw_count = len(df)
+    path = Path(excel_path)
+    if not path.exists():
+        raise FileNotFoundError(f"Excel 不存在：{path}")
 
-    targets: list[str] = []
-    skipped = 0
-    for v in df.iloc[:, 0]:
-        if pd.isna(v):
-            skipped += 1
-            continue
-        s = str(v).strip()
-        if s.lower() in _INVALID_TOKENS:
-            skipped += 1
-            continue
-        targets.append(s)
-
-    logger.info(
-        "读取 Excel：原始 %d 行，有效 %d 个，跳过 %d 行",
-        raw_count, len(targets), skipped,
-    )
-    return targets
+    wb = load_workbook(path, read_only=True, data_only=True)
+    try:
+        ws = wb.active
+        if ws is None:
+            return []
+        targets: list[str] = []
+        for row in ws.iter_rows(min_col=1, max_col=1, values_only=True):
+            v = row[0] if row else None
+            if v is None:
+                continue
+            s = str(v).strip()
+            if s and s.lower() not in _INVALID_TOKENS:
+                targets.append(s)
+        return targets
+    finally:
+        wb.close()
 
 
 # ============================================================
@@ -316,4 +318,16 @@ async def _process_one(
 def save_csv(records: list[dict], path: str | Path) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    pd.DataFrame(records).to_csv(path, index=False, encoding="utf-8-sig")
+
+    if not records:
+        # 空列表也要写一个文件，否则下游读会报"文件不存在"
+        path.write_text("", encoding="utf-8-sig")
+        return
+
+    # 用第一条记录的键作为表头；后续记录缺的字段填空
+    fieldnames = list(records[0].keys())
+    with open(path, "w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
+        writer.writeheader()
+        for r in records:
+            writer.writerow({k: (r.get(k) or "") for k in fieldnames})

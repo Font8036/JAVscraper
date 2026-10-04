@@ -51,23 +51,15 @@ class ConfigWindow(tk.Toplevel):
         self.geometry(f"+{max(0, x)}+{max(0, y)}")
 
         self.protocol("WM_DELETE_WINDOW", self._on_cancel)
+        self.grab_set()
 
     # ============================================================
     # 构建
     # ============================================================
     def _build(self, pages: list[ConfigPage]) -> None:
-        nb = ttk.Notebook(self)
-        nb.pack(fill="both", expand=True, padx=10, pady=(10, 4))
-
-        for page in pages:
-            container = ttk.Frame(nb, padding=10)
-            inner = page.build(container)
-            inner.pack(fill="both", expand=True)
-            nb.add(container, text=page.title)
-            self._pages[page.title] = page
-
+        # 按钮先 pack，占据底部，优先获得空间
         btns = ttk.Frame(self, padding=(10, 6, 10, 10))
-        btns.pack(fill="x")
+        btns.pack(fill="x", side="bottom")
 
         ttk.Button(btns, text="重置", command=self._on_reset).pack(side="left")
         ttk.Button(btns, text="重新加载", command=self._on_reload).pack(
@@ -78,6 +70,66 @@ class ConfigWindow(tk.Toplevel):
         ttk.Button(btns, text="取消", command=self._on_cancel).pack(
             side="right", padx=(4, 0))
         ttk.Button(btns, text="确定", command=self._on_ok).pack(side="right")
+
+        # Notebook 占据剩余空间
+        nb = ttk.Notebook(self)
+        nb.pack(fill="both", expand=True, padx=10, pady=(10, 4))
+
+        for page in pages:
+            container = ttk.Frame(nb)
+            self._build_scrollable_tab(container, page)
+            nb.add(container, text=page.title)
+            self._pages[page.title] = page
+
+    def _build_scrollable_tab(
+        self, container: ttk.Frame, page: ConfigPage,
+    ) -> None:
+        """在 container 里建一个带垂直滚动条的内容区。"""
+        canvas = tk.Canvas(container, highlightthickness=0)
+        vbar = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=vbar.set)
+        vbar.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True)
+
+        inner = ttk.Frame(canvas, padding=10)
+        inner_id = canvas.create_window((0, 0), window=inner, anchor="nw")
+
+        content = page.build(inner)
+        content.pack(fill="both", expand=True)
+
+        def _sync_scrollregion():
+            if not inner.winfo_exists():
+                return
+            content_h = inner.winfo_height()
+            canvas_h = canvas.winfo_height()
+            canvas.configure(
+                scrollregion=(0, 0, inner.winfo_width(),
+                              max(content_h, canvas_h)),
+            )
+
+        def _on_inner_config(_e):
+            _sync_scrollregion()
+
+        def _on_canvas_config(e):
+            canvas.itemconfig(inner_id, width=e.width)
+            _sync_scrollregion()
+
+        inner.bind("<Configure>", _on_inner_config)
+        canvas.bind("<Configure>", _on_canvas_config)
+
+        def _on_wheel(e):
+            canvas.yview_scroll(int(-1 * (e.delta / 120)), "units")
+
+        def _bind_wheel(_e):
+            canvas.bind_all("<MouseWheel>", _on_wheel)
+
+        def _unbind_wheel(_e):
+            canvas.unbind_all("<MouseWheel>")
+
+        canvas.bind("<Enter>", _bind_wheel)
+        canvas.bind("<Leave>", _unbind_wheel)
+
+        self.after(50, _sync_scrollregion)
 
     # ============================================================
     # 加载 / 应用

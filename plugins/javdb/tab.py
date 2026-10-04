@@ -210,7 +210,7 @@ class JavdbPlugin:
         self.result_tree = SortableTreeview(
             root,
             key=lambda r: f"row_{r.idx}",
-            height=8,
+            height=4,
             columns=[
                 Column("target", "目标番号", 140,
                        display=lambda r: r.target,

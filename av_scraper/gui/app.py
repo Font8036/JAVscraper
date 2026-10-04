@@ -54,18 +54,8 @@ class App(tk.Tk):
             ttk.Style(self).theme_use("vista")
         except tk.TclError:
             pass
-        
-        nb = ttk.Notebook(self)
-        nb.pack(fill="both", expand=True, padx=6, pady=6)
 
-        self.scan_tab = ScanTab(nb, self)
-        self.move_tab = MoveTab(nb, self)
-        self.notebook = nb
-        nb.add(self.scan_tab, text="1-扫描")
-        nb.add(self.move_tab, text="2-移动")
-
-        self._load_plugins(nb)   # ★
-
+        # ===== 状态栏先 pack，优先占据底部空间 =====
         status_bar = ttk.Frame(self)
         status_bar.pack(fill="x", side="bottom")
 
@@ -83,6 +73,18 @@ class App(tk.Tk):
             status_bar, text="配置", width=6,
             command=self._open_config_window,
         ).pack(side="right")
+
+        # ===== Notebook 占据剩余空间 =====
+        nb = ttk.Notebook(self)
+        nb.pack(fill="both", expand=True, padx=6, pady=6)
+
+        self.scan_tab = ScanTab(nb, self)
+        self.move_tab = MoveTab(nb, self)
+        self.notebook = nb
+        nb.add(self.scan_tab, text="1-扫描")
+        nb.add(self.move_tab, text="2-移动")
+
+        self._load_plugins(nb)   # ★
 
     def _show_about(self) -> None:
         from .dialogs import show_about

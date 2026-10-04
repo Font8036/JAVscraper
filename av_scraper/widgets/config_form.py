@@ -34,6 +34,7 @@ class ConfigForm(ttk.Frame):
         super().__init__(parent)
         self._config_cls = config_cls
         self._widgets: dict[str, tuple[str, Any]] = {}
+        self._row_frames: dict[str, ttk.Frame] = {}    # ← 新增
         self._loaded_instance: Optional[Any] = None
 
         self._build()
@@ -106,13 +107,12 @@ class ConfigForm(ttk.Frame):
             self._render_list_row(row_fields)
             return
 
-        # 混合类型：逐字段成行
-        for f in row_fields:
-            self._render_single(f, label_width)
+        self._render_mixed_row(row_fields, label_width)
 
     def _render_single(self, f, label_width: int) -> None:
         row = ttk.Frame(self)
         row.pack(fill="x", pady=2)
+        self._row_frames[f.name] = row                  # ← 新增
         label = f.metadata.get("label", f.name)
         kind = f.metadata.get("kind", "str")
         tip = f.metadata.get("tooltip")
@@ -143,6 +143,7 @@ class ConfigForm(ttk.Frame):
                 QuestionMark(cell, tip).pack(side="left", padx=(2, 0))
 
             self._widgets[f.name] = ("bool", var)
+            self._row_frames[f.name] = row
 
     def _render_list_row(self, row_fields: list) -> None:
         row = ttk.Frame(self)
@@ -162,6 +163,36 @@ class ConfigForm(ttk.Frame):
             txt = tk.Text(cell, height=height, wrap="none", width=1)
             txt.pack(fill="both", expand=True)
             self._widgets[f.name] = ("list", txt)
+            self._row_frames[f.name] = cell
+
+    def _render_mixed_row(self, row_fields: list, label_width: int) -> None:
+        """混合类型行：bool 显示为 Checkbutton，其它显示为 标签+控件。"""
+        row = ttk.Frame(self)
+        row.pack(fill="x", pady=2)
+        ttk.Label(row, text="", width=label_width).pack(side="left")
+
+        for i, f in enumerate(row_fields):
+            kind = f.metadata.get("kind", "str")
+            label = f.metadata.get("label", f.name)
+            tip = f.metadata.get("tooltip")
+            pad_right = 16 if i < len(row_fields) - 1 else 0
+
+            cell = ttk.Frame(row)
+            cell.pack(side="left", padx=(0, pad_right))
+            self._row_frames[f.name] = cell
+
+            if kind == "bool":
+                var = tk.BooleanVar()
+                ttk.Checkbutton(cell, text=label, variable=var).pack(side="left")
+                if tip:
+                    QuestionMark(cell, tip).pack(side="left", padx=(2, 0))
+                self._widgets[f.name] = ("bool", var)
+            else:
+                ttk.Label(cell, text=label + ":").pack(side="left")
+                if tip:
+                    QuestionMark(cell, tip).pack(side="left", padx=(2, 0))
+                widget = self._make_widget(cell, f)
+                self._widgets[f.name] = (kind, widget)
 
     # ============================================================
     # 控件构造
@@ -263,6 +294,10 @@ class ConfigForm(ttk.Frame):
             kind, widget = self._widgets[f.name]
             kwargs[f.name] = self._read_widget(f, kind, widget)
         return self._config_cls(**kwargs)
+
+    def get_row_frame(self, field_name: str) -> Optional[ttk.Frame]:
+        """返回指定字段所在的行 Frame。可往里添加额外的按钮等控件。"""
+        return self._row_frames.get(field_name)
 
     # ---------- widget 读写 ----------
     @staticmethod

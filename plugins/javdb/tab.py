@@ -18,7 +18,7 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from typing import Any, Optional
 from dataclasses import dataclass
-from av_scraper.widgets import Column, SortableTreeview
+from av_scraper.widgets import Column, SortableTreeview, ConfigForm
 from av_scraper.plugin_api import PluginContext
 from .notify import play_beep, show_toast
 from .parse import is_matched
@@ -65,7 +65,7 @@ class JavdbPlugin:
         root = ttk.Frame(notebook, padding=8)
         self._root = root
         self._build(root)
-        self._load_to_ui()
+        self._form.load_from(self._config) 
         root.after(80, self._poll)
         return root
 
@@ -73,93 +73,20 @@ class JavdbPlugin:
     # UI 构建
     # ============================================================
     def _build(self, root: ttk.Frame) -> None:
-        # -------- 路径区 --------
-        paths = ttk.LabelFrame(root, text="路径", padding=8)
-        paths.pack(fill="x", pady=(0, 6))
+        # -------- 配置区 --------
+        cfg_frame = ttk.LabelFrame(root, text="配置", padding=8)
+        cfg_frame.pack(fill="x", pady=(0, 6))
 
-        self._var_input = self._make_path_row(
-            paths, "输入 Excel:", "file")
-        self._var_cover = self._make_path_row(
-            paths, "封面目录:", "dir")
-        self._var_csv = self._make_path_row(
-            paths, "输出 CSV:", "save", ".csv")
-        self._var_excel = self._make_path_row(
-            paths, "输出 Excel:", "save", ".xlsx")
-        # 登录状态行（多一个"导入"按钮）
-        state_row = ttk.Frame(paths); state_row.pack(fill="x", pady=2)
-        ttk.Label(state_row, text="登录状态:", width=14, anchor="e").pack(side="left")
-        self._var_state = tk.StringVar()
-        ttk.Entry(state_row, textvariable=self._var_state).pack(
-            side="left", fill="x", expand=True, padx=4)
-        ttk.Button(
-            state_row, text="浏览…",
-            command=lambda: self._pick_path(self._var_state, "save", ".json"),
-        ).pack(side="left")
-        ttk.Button(
-            state_row, text="导入浏览器 Cookie",
-            command=self._on_import_cookies,
-        ).pack(side="left", padx=(4, 0))
+        self._form = ConfigForm(cfg_frame, JavdbConfig)
+        self._form.pack(fill="x")
 
-        # -------- 参数区 --------
-        opts = ttk.LabelFrame(root, text="参数", padding=8)
-        opts.pack(fill="x", pady=(0, 6))
-
-        row0 = ttk.Frame(opts); row0.pack(fill="x", pady=2)
-        ttk.Label(row0, text="站点地址:").pack(side="left")
-        self._var_base_url = tk.StringVar()
-        ttk.Entry(row0, textvariable=self._var_base_url).pack(
-            side="left", fill="x", expand=True, padx=4)
-        
-        row1 = ttk.Frame(opts); row1.pack(fill="x", pady=2)
-        self._var_show_browser = tk.BooleanVar()
-        ttk.Checkbutton(
-            row1, text="显示浏览器窗口", variable=self._var_show_browser,
-        ).pack(side="left", padx=(0, 16))
-        ttk.Label(row1, text="浏览器:").pack(side="left")
-        self._var_channel = tk.StringVar()
-        ttk.Combobox(
-            row1, textvariable=self._var_channel,
-            values=["msedge", "chrome", "chromium"],
-            state="readonly", width=12,
-        ).pack(side="left", padx=4)
-
-        row2 = ttk.Frame(opts); row2.pack(fill="x", pady=2)
-        ttk.Label(row2, text="请求间隔(秒):").pack(side="left")
-        self._var_delay = tk.StringVar()
-        ttk.Spinbox(
-            row2, from_=0.0, to=10.0, increment=0.5,
-            textvariable=self._var_delay, width=6,
-        ).pack(side="left", padx=(4, 16))
-        ttk.Label(row2, text="超时(秒):").pack(side="left")
-        self._var_timeout = tk.StringVar()
-        ttk.Spinbox(
-            row2, from_=5, to=300, increment=5,
-            textvariable=self._var_timeout, width=6,
-        ).pack(side="left", padx=(4, 16))
-        ttk.Label(row2, text="重试次数:").pack(side="left")
-        self._var_retry = tk.StringVar()
-        ttk.Spinbox(
-            row2, from_=0, to=5,
-            textvariable=self._var_retry, width=4,
-        ).pack(side="left", padx=4)
-
-        row3 = ttk.Frame(opts); row3.pack(fill="x", pady=2)
-        self._var_skip_covers = tk.BooleanVar()
-        ttk.Checkbutton(
-            row3, text="跳过已存在的封面", variable=self._var_skip_covers,
-        ).pack(side="left", padx=(0, 16))
-        self._var_save_state = tk.BooleanVar()
-        ttk.Checkbutton(
-            row3, text="退出时保存登录状态", variable=self._var_save_state,
-        ).pack(side="left", padx=(0, 16))
-        self._var_notify_sound = tk.BooleanVar()
-        ttk.Checkbutton(
-            row3, text="完成时响铃", variable=self._var_notify_sound,
-        ).pack(side="left", padx=(0, 16))
-        self._var_notify_toast = tk.BooleanVar()
-        ttk.Checkbutton(
-            row3, text="完成时发系统通知", variable=self._var_notify_toast,
-        ).pack(side="left")
+        # 在"登录状态"那一行加"导入浏览器 Cookie"按钮
+        state_row = self._form.get_row_frame("state_file")
+        if state_row is not None:
+            ttk.Button(
+                state_row, text="导入浏览器 Cookie",
+                command=self._on_import_cookies,
+            ).pack(side="left", padx=(4, 0))
 
         # -------- 按钮区 --------
         actions = ttk.Frame(root, padding=(0, 4))
@@ -252,76 +179,16 @@ class JavdbPlugin:
         self._log = tk.Text(root, height=8, wrap="none", state="disabled")
         self._log.pack(fill="both")
 
-    def _make_path_row(
-        self, parent, label: str, kind: str, ext: Optional[str] = None,
-    ) -> tk.StringVar:
-        row = ttk.Frame(parent); row.pack(fill="x", pady=2)
-        ttk.Label(row, text=label, width=14, anchor="e").pack(side="left")
-        var = tk.StringVar()
-        ttk.Entry(row, textvariable=var).pack(
-            side="left", fill="x", expand=True, padx=4)
-        ttk.Button(
-            row, text="浏览…",
-            command=lambda v=var, k=kind, e=ext: self._pick_path(v, k, e),
-        ).pack(side="left")
-        return var
-
     # ============================================================
     # 配置读写
     # ============================================================
-    def _load_to_ui(self) -> None:
-        cfg = self._config
-        self._var_input.set(cfg.input_excel)
-        self._var_cover.set(cfg.cover_dir)
-        self._var_csv.set(cfg.output_csv)
-        self._var_excel.set(cfg.output_excel)
-        self._var_state.set(cfg.state_file)
-        self._var_base_url.set(cfg.base_url)
 
-        self._var_show_browser.set(cfg.show_browser)
-        self._var_channel.set(cfg.browser_channel)
-        self._var_delay.set(str(cfg.request_delay))
-        self._var_timeout.set(str(max(1, cfg.page_timeout // 1000)))
-        self._var_retry.set(str(cfg.max_retries))
-        self._var_skip_covers.set(cfg.skip_existing_covers)
-        self._var_save_state.set(cfg.save_state_on_exit)
-        self._var_notify_sound.set(cfg.notify_sound)
-        self._var_notify_toast.set(cfg.notify_toast)
 
-    def _ui_to_config(self) -> JavdbConfig:
-        def _f(s, default):
-            try:
-                return float(s)
-            except (TypeError, ValueError):
-                return default
 
-        def _i(s, default):
-            try:
-                return int(s)
-            except (TypeError, ValueError):
-                return default
-
-        return JavdbConfig(
-            input_excel=self._var_input.get().strip(),
-            cover_dir=self._var_cover.get().strip(),
-            output_csv=self._var_csv.get().strip(),
-            output_excel=self._var_excel.get().strip(),
-            state_file=self._var_state.get().strip(),
-            base_url=normalize_base_url(self._var_base_url.get()),
-            show_browser=bool(self._var_show_browser.get()),
-            browser_channel=self._var_channel.get().strip() or "msedge",
-            request_delay=_f(self._var_delay.get(), 1.0),
-            page_timeout=int(_f(self._var_timeout.get(), 60) * 1000),
-            max_retries=_i(self._var_retry.get(), 2),
-            skip_existing_covers=bool(self._var_skip_covers.get()),
-            save_state_on_exit=bool(self._var_save_state.get()),
-            notify_sound=bool(self._var_notify_sound.get()),
-            notify_toast=bool(self._var_notify_toast.get()),
-        )
 
     def _on_save_config(self) -> None:
         try:
-            self._config = self._ui_to_config()
+            self._config = self._form.collect()
             self._config.save(self._config_path)
         except Exception as e:
             messagebox.showerror("保存失败", str(e), parent=self._parent())
@@ -331,35 +198,8 @@ class JavdbPlugin:
     # ============================================================
     # 文件选择
     # ============================================================
-    def _pick_path(
-        self, var: tk.StringVar, kind: str, ext: Optional[str] = None,
-    ) -> None:
-        current = var.get().strip()
-        if kind == "dir":
-            p = filedialog.askdirectory(initialdir=current or None)
-        elif kind == "file":
-            init = str(Path(current).parent) if current else None
-            p = filedialog.askopenfilename(
-                initialdir=init,
-                filetypes=[
-                    ("Excel / CSV / JSON", "*.xlsx *.xls *.csv *.json"),
-                    ("所有文件", "*.*"),
-                ],
-            )
-        elif kind == "save":
-            init = str(Path(current).parent) if current else None
-            kwargs: dict[str, Any] = {"initialdir": init}
-            if ext:
-                kwargs["defaultextension"] = ext
-            p = filedialog.asksaveasfilename(**kwargs)
-        else:
-            return
-        if p:
-            var.set(p)
-
     def _on_import_cookies(self) -> None:
-        """从浏览器扩展导出的 cookie JSON 导入，转成 Playwright storage_state。"""
-        target = self._var_state.get().strip()
+        target = self._config.state_file.strip()
         if not target:
             messagebox.showwarning(
                 "提示", "请先在『登录状态』里指定保存路径",
@@ -399,10 +239,9 @@ class JavdbPlugin:
             messagebox.showerror("保存失败", str(e), parent=self._parent())
             return
 
-        # 顺手把路径写回 UI 和插件配置
-        self._var_state.set(str(out))
+        self._config.state_file = str(out)
+        self._form.load_from(self._config)
         try:
-            self._config = self._ui_to_config()
             self._config.save(self._config_path)
         except OSError:
             pass
@@ -480,7 +319,7 @@ class JavdbPlugin:
             return
 
         # 同步 UI 到配置并保存（这样下次打开路径还在）
-        self._config = self._ui_to_config()
+        self._config = self._form.collect()
         try:
             self._config.save(self._config_path)
         except OSError:
@@ -569,7 +408,7 @@ class JavdbPlugin:
     def _on_build_excel(self) -> None:
         if self._working:
             return
-        self._config = self._ui_to_config()
+        self._config = self._form.collect()
 
         checks = [
             (self._config.output_csv, "输出 CSV 路径"),

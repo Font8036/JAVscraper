@@ -108,12 +108,12 @@ async def scrape_javdb(
             on_log("未加载登录状态，以游客模式运行")
 
         page = await context.new_page()
-        page.set_default_timeout(config.page_timeout)
+        page.set_default_timeout(config.page_timeout_ms)
 
         try:
             # 首次打开主页，网络慢，给 5 倍超时
-            on_log(f"正在打开主页（超时 {config.page_timeout * 5 // 1000} 秒）…")
-            await page.goto(config.base_url, wait_until="load", timeout=config.page_timeout * 5)
+            on_log(f"正在打开主页（超时 {config.page_timeout_ms * 5 // 1000} 秒）…")
+            await page.goto(config.base_url, wait_until="load", timeout=config.page_timeout_ms * 5)
             on_log(f"已打开网页: {page.url}")
 
             for idx, keyword in enumerate(targets):
@@ -177,7 +177,7 @@ async def scrape_javdb(
                 try:
                     await page.go_back()
                     await page.wait_for_selector(
-                        "#video-search", timeout=config.page_timeout)
+                        "#video-search", timeout=config.page_timeout_ms)
                 except Exception:
                     try:
                         await page.goto(
@@ -214,11 +214,11 @@ async def _process_one(
     # ---- 搜索 ----
     await page.fill("#video-search", "")
     await page.fill("#video-search", keyword)
-    await page.wait_for_selector("#search-submit", timeout=config.page_timeout)
+    await page.wait_for_selector("#search-submit", timeout=config.page_timeout_ms)
     await page.click("#search-submit")
     # 结果出现、或"无结果"提示出现，谁先到就响应
     await page.wait_for_selector(
-        ".movie-list .item a, .empty-message", state="visible", timeout=config.page_timeout,
+        ".movie-list .item a, .empty-message", state="visible", timeout=config.page_timeout_ms,
     )
 
     # 如果命中的是"无结果"提示，直接抛异常，避免无意义的重试
@@ -231,7 +231,7 @@ async def _process_one(
     # ---- 进入详情 ----
     await page.click(".movie-list .item a")
     await page.wait_for_selector(
-        "strong.current-title", state="visible", timeout=config.page_timeout,
+        "strong.current-title", state="visible", timeout=config.page_timeout_ms,
     )
 
     try:
@@ -251,7 +251,7 @@ async def _process_one(
             on_log("已点击 a.meta-link")
             await page.wait_for_selector(
                 "strong.current-title", state="visible",
-                timeout=config.page_timeout,
+                timeout=config.page_timeout_ms,
             )
     except Exception as e:
         on_log(f"处理 a.meta-link 时出错（已忽略继续）: {e}")

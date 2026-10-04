@@ -1,6 +1,6 @@
 {
   "name": "JavDB 刮削",
-  "version": "1.0.0",
+  "version": "1.3",
   "entry": "tab:JavdbPlugin",
   "description": "从 javdb 抓取元数据并生成带封面的 Excel 报告",
   "dependencies": [

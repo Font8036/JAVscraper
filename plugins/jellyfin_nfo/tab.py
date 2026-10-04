@@ -13,7 +13,7 @@ from tkinter import messagebox, ttk
 from typing import Optional
 
 from av_scraper.plugin_api import PluginContext
-from av_scraper.widgets import ConfigForm
+from av_scraper.widgets import Column, ConfigForm, SortableTreeview
 
 from .config import JellyfinNfoConfig
 from .excel_reader import read_excel_data
@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 class JellyfinNfoPlugin:
     name = "Jellyfin NFO"
-    version = "1.2"
+    version = "1.3"
 
     _form: ConfigForm       # ← 加这一行，告诉 Pylance 所有实例都有此属性
 
@@ -84,24 +84,44 @@ class JellyfinNfoPlugin:
             side="left", padx=12)
 
         # ---- 表格 ----
-        cols = ("code", "videos", "cover", "nfo", "status")
-        self._tree = ttk.Treeview(root, columns=cols, show="headings", height=6)
-        headers = {
-            "code": "番号", "videos": "视频数",
-            "cover": "封面", "nfo": "NFO", "status": "状态",
-        }
-        widths = {
-            "code": 140, "videos": 70, "cover": 60,
-            "nfo": 60, "status": 320,
-        }
-        for c in cols:
-            self._tree.heading(c, text=headers[c])
-            self._tree.column(c, width=widths[c], anchor="w",
-                              stretch=(c == "status"))
-        self._tree.tag_configure("ok", foreground="#1a7f37")
-        self._tree.tag_configure("warn", foreground="#c77b00")
-        self._tree.tag_configure("failed", foreground="#c0392b")
-        self._tree.pack(fill="both", expand=True, pady=(8, 0))
+        def _row_tags(r: dict) -> tuple:
+            tag = r.get("tag")
+            return (tag,) if tag else ()
+
+        self.result_tree = SortableTreeview(
+            root,
+            key=lambda r: r["code"],
+            height=6,
+            searchable=True,
+            columns=[
+                Column("code", "番号", 140,
+                       display=lambda r: r["code"],
+                       sort=lambda r: r["code"].lower()),
+                Column("videos", "视频数", 70,
+                       display=lambda r: str(r["video_count"]),
+                       sort=lambda r: r["video_count"],
+                       anchor="center"),
+                Column("cover", "封面", 60,
+                       display=lambda r: "✓" if r["cover_ok"] else "—",
+                       sort=lambda r: 1 if r["cover_ok"] else 0,
+                       anchor="center"),
+                Column("nfo", "NFO", 60,
+                       display=lambda r: "✓" if r["nfo_ok"] else "—",
+                       sort=lambda r: 1 if r["nfo_ok"] else 0,
+                       anchor="center"),
+                Column("status", "状态", 320,
+                       display=lambda r: r["status"],
+                       sort=lambda r: r["status"].lower(),
+                       stretch=True),
+            ],
+            row_tags=_row_tags,
+            tag_configure={
+                "ok":     {"foreground": "#1a7f37"},
+                "warn":   {"foreground": "#c77b00"},
+                "failed": {"foreground": "#c0392b"},
+            },
+        )
+        self.result_tree.pack(fill="both", expand=True, pady=(8, 0))
 
         # ---- 日志 ----
         ttk.Label(root, text="日志:").pack(anchor="w", pady=(6, 0))
@@ -147,7 +167,7 @@ class JellyfinNfoPlugin:
             return
 
         self._clear_log()
-        self._tree.delete(*self._tree.get_children())
+        self.result_tree.clear()
         self._working = True
         self._btn_extract.configure(state="disabled")
         self._btn_generate.configure(state="disabled")
@@ -224,7 +244,7 @@ class JellyfinNfoPlugin:
             return
 
         self._clear_log()
-        self._tree.delete(*self._tree.get_children())
+        self.result_tree.clear()
         self._working = True
         self._btn_extract.configure(state="disabled")
         self._btn_generate.configure(state="disabled")
@@ -330,17 +350,7 @@ class JellyfinNfoPlugin:
             self._root.after(80, self._poll)
 
     def _insert_row(self, r: dict) -> None:
-        cover_icon = "✓" if r["cover_ok"] else "—"
-        nfo_icon = "✓" if r["nfo_ok"] else "—"
-        self._tree.insert(
-            "", "end",
-            values=(r["code"], r["video_count"],
-                    cover_icon, nfo_icon, r["status"]),
-            tags=(r.get("tag", ""),),
-        )
-        children = self._tree.get_children()
-        if children:
-            self._tree.see(children[-1])
+        self.result_tree.append_row(r)
 
     # ---------- 日志 ----------
     def _append_log(self, msg: str) -> None:

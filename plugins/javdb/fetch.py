@@ -311,7 +311,6 @@ async def _process_one(
         "评论": comments,
     }
 
-
 # ============================================================
 # 落盘
 # ============================================================
@@ -331,3 +330,144 @@ def save_csv(records: list[dict], path: str | Path) -> None:
         writer.writeheader()
         for r in records:
             writer.writerow({k: (r.get(k) or "") for k in fieldnames})
+
+# ============================================================
+# 独立浏览器会话：用户手动登录后保存登录状态
+# ============================================================
+class BrowserSession:
+    """一个独立的 Playwright 浏览器会话，供用户手动登录使用。
+
+    生命周期：
+      start()  → 后台线程启动浏览器并打开站点首页
+      用户操作 → 在浏览器里慢慢登录
+      stop()   → 通知后台线程保存 storage_state 并关闭浏览器
+
+    检测浏览器是否存活：用户直接关闭浏览器窗口（点 ×）时，
+    Playwright 会触发 disconnected，这时无法再保存状态，
+    会记录一条警告。
+    """
+
+    def __init__(self, config, on_log: Optional[LogFn] = None):
+        self.config = config
+        self._on_log = on_log or (lambda _s: None)
+        self._stop_event = threading.Event()
+        self._ready_event = threading.Event()
+        self._done_event = threading.Event()
+        self._error: Optional[BaseException] = None
+        self._thread: Optional[threading.Thread] = None
+
+    # ---------- 状态查询 ----------
+    @property
+    def ready(self) -> bool:
+        return self._ready_event.is_set()
+
+    @property
+    def done(self) -> bool:
+        return self._done_event.is_set()
+
+    @property
+    def error(self) -> Optional[BaseException]:
+        return self._error
+
+    # ---------- 对外控制 ----------
+    def start(self) -> None:
+        if self._thread is not None:
+            return
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        """请求保存并关闭。"""
+        self._stop_event.set()
+
+    # ---------- 后台线程 ----------
+    def _run(self) -> None:
+        try:
+            asyncio.run(self._async_main())
+        except Exception as e:
+            self._error = e
+            self._on_log(f"[错误] 浏览器会话异常：{e}")
+            self._ready_event.set()  # 让 GUI 不再无限等待
+        finally:
+            self._done_event.set()
+
+    async def _async_main(self) -> None:
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(
+                headless=False,     # 必须显示窗口让用户登录
+                channel=self.config.browser_channel or None,
+            )
+
+            # 已有登录状态则加载
+            state_file = (self.config.state_file or "").strip()
+            context = None
+            if state_file and Path(state_file).exists():
+                try:
+                    context = await browser.new_context(storage_state=state_file)
+                    self._on_log(f"已加载登录状态：{state_file}")
+                except Exception as e:
+                    self._on_log(f"[警告] 加载登录状态失败，使用空会话：{e}")
+            if context is None:
+                context = await browser.new_context()
+
+            page = await context.new_page()
+            await page.goto(self.config.base_url, wait_until="load")
+
+            self._ready_event.set()
+            self._on_log("浏览器已启动，请在浏览器窗口中完成登录。")
+            self._on_log("登录完成后，点击「关闭浏览器」按钮保存登录状态。")
+            self._on_log("（直接点浏览器右上角的 × 关闭不会保存登录状态）")
+
+            # 事件监听：浏览器整体断开时立即标记
+            disconnected = asyncio.Event()
+
+            def _on_disconnect(_browser=None):
+                disconnected.set()
+
+            browser.on("disconnected", _on_disconnect)
+
+            # 等待用户通过按钮请求关闭
+            try:
+                while not self._stop_event.is_set():
+                    # 1. 浏览器整体断开
+                    if disconnected.is_set() or not browser.is_connected():
+                        self._on_log(
+                            "[警告] 浏览器被手动关闭，登录状态未保存。"
+                        )
+                        return
+
+                    # 2. 所有页面都已被关闭（用户点 × 的典型情况）
+                    alive_pages = [
+                        p for p in context.pages if not p.is_closed()
+                    ]
+                    if not alive_pages:
+                        self._on_log(
+                            "[警告] 检测到所有页面已关闭，登录状态未保存。"
+                        )
+                        return
+
+                    await asyncio.sleep(0.3)
+
+                # 保存登录状态
+                if state_file:
+                    try:
+                        target = Path(state_file)
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        await context.storage_state(path=str(target))
+                        self._on_log(f"登录状态已保存：{target}")
+                    except Exception as e:
+                        self._on_log(f"[警告] 保存登录状态失败：{e}")
+                else:
+                    self._on_log(
+                        "[提示] 未配置「登录状态」路径，登录状态未保存。"
+                    )
+            finally:
+                try:
+                    await context.close()
+                except Exception:
+                    pass
+                try:
+                    await browser.close()
+                except Exception:
+                    pass
+                self._on_log("浏览器已关闭。")

@@ -100,7 +100,7 @@ class JavdbConfig:
         },
     )
     page_timeout: int = field(
-        default=60,
+        default=5,
         metadata={
             "label": "超时(秒)", "kind": "int",
             "row_group": "params_num",
@@ -108,7 +108,7 @@ class JavdbConfig:
         },
     )
     max_retries: int = field(
-        default=2,
+        default=1,
         metadata={
             "label": "重试次数", "kind": "int",
             "row_group": "params_num",
@@ -117,14 +117,14 @@ class JavdbConfig:
 
     # ---- 开关 ----
     skip_existing_covers: bool = field(
-        default=False,
+        default=True,
         metadata={
             "label": "跳过已存在的封面", "kind": "bool",
             "row_group": "switches",
         },
     )
     save_state_on_exit: bool = field(
-        default=False,
+        default=True,
         metadata={
             "label": "退出时保存登录状态", "kind": "bool",
             "row_group": "switches",
@@ -138,7 +138,7 @@ class JavdbConfig:
         },
     )
     notify_toast: bool = field(
-        default=False,
+        default=True,
         metadata={
             "label": "完成时发系统通知", "kind": "bool",
             "row_group": "switches",

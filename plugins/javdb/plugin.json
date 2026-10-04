@@ -5,7 +5,7 @@
   "description": "从 javdb 抓取元数据并生成带封面的 Excel 报告",
   "dependencies": [
     "playwright",
-    "pandas",
+    "openpyxl",
     "xlsxwriter",
     "httpx",
     "Pillow"

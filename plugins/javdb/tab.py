@@ -23,7 +23,7 @@ from av_scraper.plugin_api import PluginContext
 from .notify import play_beep, show_toast
 from .parse import is_matched
 from .config import JavdbConfig, normalize_base_url
-from .fetch import load_targets, save_csv, scrape_javdb
+from .fetch import BrowserSession, load_targets, save_csv, scrape_javdb
 from .report import build_excel
 
 @dataclass
@@ -46,6 +46,7 @@ class JavdbPlugin:
         self._queue: queue.Queue = queue.Queue()
         self._stop_event = threading.Event()
         self._working = False
+        self._browser_session: Optional[BrowserSession] = None
         self._root: Optional[ttk.Frame] = None
         self._rows: list[FetchRow] = []
         self._row_by_idx: dict[int, FetchRow] = {}
@@ -91,9 +92,19 @@ class JavdbPlugin:
         # -------- 按钮区 --------
         actions = ttk.Frame(root, padding=(0, 4))
         actions.pack(fill="x")
-        ttk.Button(
+        self._btn_save = ttk.Button(
             actions, text="保存配置", command=self._on_save_config,
-        ).pack(side="left")
+        )
+        self._btn_save.pack(side="left")
+
+        self._btn_open_browser = ttk.Button(
+            actions, text="启动浏览器", command=self._on_open_browser)
+        self._btn_open_browser.pack(side="left", padx=(8, 0))
+        self._btn_close_browser = ttk.Button(
+            actions, text="关闭浏览器", command=self._on_close_browser,
+            state="disabled")
+        self._btn_close_browser.pack(side="left", padx=4)
+
         self._btn_fetch = ttk.Button(
             actions, text="开始爬取", command=self._on_fetch)
         self._btn_fetch.pack(side="left", padx=(8, 0))
@@ -315,7 +326,7 @@ class JavdbPlugin:
     # 爬取
     # ============================================================
     def _on_fetch(self) -> None:
-        if self._working:
+        if self._working or self._browser_session is not None:
             return
 
         # 同步 UI 到配置并保存（这样下次打开路径还在）
@@ -403,10 +414,114 @@ class JavdbPlugin:
         self._btn_stop.configure(state="disabled")
 
     # ============================================================
+    # 浏览器会话
+    # ============================================================
+    def _on_open_browser(self) -> None:
+        if self._working or self._browser_session is not None:
+            return
+
+        # 保存当前 UI 配置，保证 base_url / state_file 是新的
+        self._config = self._form.collect()
+        try:
+            self._config.save(self._config_path)
+        except OSError:
+            pass
+
+        if not self._config.state_file:
+            if not messagebox.askyesno(
+                "提示",
+                "尚未配置「登录状态」保存路径。\n\n"
+                "现在打开浏览器也可以，但关闭时不会保存登录状态。\n"
+                "是否继续？",
+                parent=self._parent(),
+            ):
+                return
+
+        session = BrowserSession(self._config, on_log=self._append_log)
+        self._browser_session = session
+
+        # 按钮状态
+        self._btn_open_browser.configure(state="disabled")
+        self._btn_close_browser.configure(state="disabled")
+        self._btn_fetch.configure(state="disabled")
+        self._btn_stop.configure(state="disabled")
+        self._btn_report.configure(state="disabled")
+        self._btn_save.configure(state="disabled")
+        self._status_var.set("浏览器启动中…")
+
+        session.start()
+        self._schedule(self._poll_browser_ready)
+
+    def _poll_browser_ready(self) -> None:
+        session = self._browser_session
+        if session is None:
+            return
+
+        # 启动失败
+        if session.error is not None:
+            messagebox.showerror(
+                "启动失败",
+                f"浏览器启动失败：{session.error}",
+                parent=self._parent(),
+            )
+            self._browser_session = None
+            self._restore_buttons_after_browser()
+            return
+
+        # 后台线程已结束：可能是启动阶段异常，也可能是浏览器被用户直接关闭
+        if session.done:
+            self._browser_session = None
+            self._restore_buttons_after_browser()
+            if session.ready:
+                self._append_log(
+                    "若未通过「关闭浏览器」按钮操作，本次登录状态不会保存。"
+                )
+            return
+
+        # 浏览器就绪，把按钮置为可点
+        if session.ready:
+            self._btn_close_browser.configure(state="normal")
+            self._status_var.set("浏览器已启动，请登录")
+
+        # 继续轮询，以便随时发现浏览器被关闭
+        self._schedule(self._poll_browser_ready)
+
+    def _on_close_browser(self) -> None:
+        session = self._browser_session
+        if session is None:
+            return
+        self._append_log("正在关闭浏览器并保存登录状态…")
+        self._btn_close_browser.configure(state="disabled")
+        self._status_var.set("正在保存登录状态…")
+        session.stop()
+        self._schedule(self._poll_browser_closed)
+
+    def _poll_browser_closed(self) -> None:
+        session = self._browser_session
+        if session is None:
+            return
+        if session.done:
+            self._browser_session = None
+            self._restore_buttons_after_browser()
+            self._append_log("浏览器已关闭，按钮状态已恢复。")
+        else:
+            self._schedule(self._poll_browser_closed)
+
+    def _restore_buttons_after_browser(self) -> None:
+        self._btn_open_browser.configure(state="normal")
+        self._btn_close_browser.configure(state="disabled")
+        self._btn_fetch.configure(state="normal")
+        self._btn_report.configure(state="normal")
+        self._btn_save.configure(state="normal")
+        # _btn_stop 保持 disabled（本来就不在爬取中）
+        self._btn_stop.configure(state="disabled")
+        self._status_var.set("就绪")
+
+    # ============================================================
     # 生成 Excel
     # ============================================================
     def _on_build_excel(self) -> None:
-        if self._working:
+        if self._working or self._browser_session is not None:
             return
         self._config = self._form.collect()
 
@@ -546,3 +661,8 @@ class JavdbPlugin:
     def _parent(self) -> tk.Misc:
         """messagebox 的 parent。优先用插件标签页，未创建时退回主窗口。"""
         return self._root if self._root is not None else self.ctx.app
+
+    def _schedule(self, fn, delay_ms: int = 200) -> None:
+        """安全地排一个延迟任务到 tkinter 主循环。"""
+        if self._root is not None:
+            self._root.after(delay_ms, fn)

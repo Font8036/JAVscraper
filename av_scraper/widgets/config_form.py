@@ -237,7 +237,8 @@ class ConfigForm(ttk.Frame):
 
         # str / dir / file / save
         var = tk.StringVar()
-        ttk.Entry(parent, textvariable=var).pack(
+        entry_width = f.metadata.get("width", 20)
+        ttk.Entry(parent, textvariable=var, width=entry_width).pack(
             side="left", fill="x", expand=True, padx=4)
         if kind in ("dir", "file", "save"):
             ttk.Button(

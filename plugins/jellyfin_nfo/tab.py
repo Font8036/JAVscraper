@@ -9,10 +9,11 @@ import threading
 import tkinter as tk
 import traceback
 from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
+from tkinter import messagebox, ttk
 from typing import Optional
 
 from av_scraper.plugin_api import PluginContext
+from av_scraper.widgets import ConfigForm
 
 from .config import JellyfinNfoConfig
 from .excel_reader import read_excel_data
@@ -22,24 +23,11 @@ from .organizer import organize_movie_folder
 logger = logging.getLogger(__name__)
 
 
-_NFO_MODES = {
-    "每个视频生成同名 NFO": "per_video",
-    "只生成 movie.nfo": "movie_nfo",
-    "两种都生成": "both",
-}
-_NFO_MODES_REVERSE = {v: k for k, v in _NFO_MODES.items()}
-
-_COVER_NAMINGS = {
-    "两种都复制": "both",
-    "与视频同名": "same_as_video",
-    "用番号命名": "code",
-}
-_COVER_NAMINGS_REVERSE = {v: k for k, v in _COVER_NAMINGS.items()}
-
-
 class JellyfinNfoPlugin:
     name = "Jellyfin NFO"
-    version = "1.0.0"
+    version = "1.2"
+
+    _form: ConfigForm       # ← 加这一行，告诉 Pylance 所有实例都有此属性
 
     def __init__(self, ctx: PluginContext) -> None:
         self.ctx = ctx
@@ -48,17 +36,6 @@ class JellyfinNfoPlugin:
         self._queue: queue.Queue = queue.Queue()
         self._working = False
         self._root: Optional[ttk.Frame] = None
-
-        # 显式声明：Pylance 才知道这些属性存在。
-        # 这些控件在 _build() 里创建并赋值，这里只占位。
-        self._var_code_col: tk.StringVar = tk.StringVar()
-        self._var_cover_col: tk.StringVar = tk.StringVar()      # ← 新增
-        self._var_title_col: tk.StringVar = tk.StringVar()
-        self._var_actor_cols: tk.StringVar = tk.StringVar()
-        self._var_rating_cols: tk.StringVar = tk.StringVar()
-        self._var_genre_cols: tk.StringVar = tk.StringVar()
-        self._var_personal_cols: tk.StringVar = tk.StringVar()
-        self._var_user_cols: tk.StringVar = tk.StringVar()
 
     def _resolve_config_path(self) -> Path:
         meipass = getattr(sys, "_MEIPASS", None)
@@ -76,7 +53,7 @@ class JellyfinNfoPlugin:
         root = ttk.Frame(notebook, padding=8)
         self._root = root
         self._build(root)
-        self._load_to_ui()
+        self._form.load_from(self._config)
         root.after(80, self._poll)
         return root
 
@@ -84,90 +61,14 @@ class JellyfinNfoPlugin:
     # UI
     # ============================================================
     def _build(self, root: ttk.Frame) -> None:
-        # ---- 路径 ----
-        paths = ttk.LabelFrame(root, text="路径", padding=8)
-        paths.pack(fill="x", pady=(0, 6))
-        self._var_input_excel = self._make_path_row(paths, "输入 Excel:", "file")
-        self._var_movie_root = self._make_path_row(paths, "电影文件目录:", "dir")
-        self._var_cover_dir = self._make_path_row(paths, "封面源目录:", "dir")
+        # ---- 配置区 ----
+        cfg_frame = ttk.LabelFrame(root, text="配置", padding=8)
+        cfg_frame.pack(fill="x", pady=(0, 6))
 
-        # ---- Excel 解析 ----
-        pf = ttk.LabelFrame(root, text="Excel 解析", padding=8)
-        pf.pack(fill="x", pady=(0, 6))
+        self._form = ConfigForm(cfg_frame, JellyfinNfoConfig)
+        self._form.pack(fill="x")
 
-        # 第一行：工作表 + 表头行 + 提示
-        r0 = ttk.Frame(pf)
-        r0.pack(fill="x", pady=(0, 6))
-        ttk.Label(r0, text="第").pack(side="left")
-        self._var_sheet_index = tk.StringVar()
-        ttk.Spinbox(r0, from_=1, to=99, textvariable=self._var_sheet_index,
-                    width=4).pack(side="left", padx=2)
-        ttk.Label(r0, text="个工作表，第").pack(side="left")
-        self._var_header_row = tk.StringVar()
-        ttk.Spinbox(r0, from_=1, to=9999, textvariable=self._var_header_row,
-                    width=5).pack(side="left", padx=2)
-        ttk.Label(r0, text="行是列名").pack(side="left")
-        ttk.Label(
-            r0,
-            text="（演员 / 评分 / 类别 / 个人评论 / 网友评论支持多列，用 , 分隔）",
-            foreground="#888",
-        ).pack(side="left", padx=(12, 0))
-
-        # 第二、三行：字段网格（转置布局）
-        grid = ttk.Frame(pf)
-        grid.pack(fill="x")
-
-        # (显示名, 实例变量名, 输入框宽度)
-        fields = [
-            ("番号",     "_var_code_col",      9),
-            ("封面",     "_var_cover_col",     9),
-            ("标题",     "_var_title_col",    10),
-            ("演员",     "_var_actor_cols",   14),
-            ("评分",     "_var_rating_cols",  10),
-            ("类别",     "_var_genre_cols",   12),
-            ("个人评论", "_var_personal_cols", 16),
-            ("网友评论", "_var_user_cols",     16),
-        ]
-
-        ttk.Label(grid, text="提取的信息：").grid(
-            row=0, column=0, sticky="e", padx=(0, 6), pady=2)
-        ttk.Label(grid, text="列名为：").grid(
-            row=1, column=0, sticky="e", padx=(0, 6), pady=2)
-
-        for i, (label, var_name, width) in enumerate(fields, start=1):
-            ttk.Label(grid, text=label).grid(
-                row=0, column=i, sticky="w", padx=2, pady=2)
-            var = tk.StringVar()
-            setattr(self, var_name, var)
-            ttk.Entry(grid, textvariable=var, width=width).grid(
-                row=1, column=i, sticky="ew", padx=2, pady=2)
-
-        # ---- NFO 选项 ----
-        opts = ttk.LabelFrame(root, text="NFO 选项", padding=8)
-        opts.pack(fill="x", pady=(0, 6))
-
-        r1 = ttk.Frame(opts); r1.pack(fill="x", pady=2)
-        ttk.Label(r1, text="NFO 模式:").pack(side="left")
-        self._var_nfo_mode = tk.StringVar()
-        ttk.Combobox(r1, textvariable=self._var_nfo_mode,
-                     values=list(_NFO_MODES), state="readonly",
-                     width=22).pack(side="left", padx=4)
-        ttk.Label(r1, text="封面命名:").pack(side="left", padx=(16, 0))
-        self._var_cover_naming = tk.StringVar()
-        ttk.Combobox(r1, textvariable=self._var_cover_naming,
-                     values=list(_COVER_NAMINGS), state="readonly",
-                     width=14).pack(side="left", padx=4)
-
-        r2 = ttk.Frame(opts); r2.pack(fill="x", pady=2)
-        self._var_copy_cover = tk.BooleanVar()
-        ttk.Checkbutton(r2, text="复制封面",
-                        variable=self._var_copy_cover).pack(
-            side="left", padx=(0, 12))
-        self._var_overwrite = tk.BooleanVar()
-        ttk.Checkbutton(r2, text="覆盖已有 NFO",
-                        variable=self._var_overwrite).pack(side="left")
-
-        # ---- 按钮 ----
+        # ---- 按钮区 ----
         actions = ttk.Frame(root, padding=(0, 4))
         actions.pack(fill="x")
         ttk.Button(actions, text="保存配置",
@@ -184,7 +85,7 @@ class JellyfinNfoPlugin:
 
         # ---- 表格 ----
         cols = ("code", "videos", "cover", "nfo", "status")
-        self._tree = ttk.Treeview(root, columns=cols, show="headings", height=8)
+        self._tree = ttk.Treeview(root, columns=cols, show="headings", height=6)
         headers = {
             "code": "番号", "videos": "视频数",
             "cover": "封面", "nfo": "NFO", "status": "状态",
@@ -205,78 +106,14 @@ class JellyfinNfoPlugin:
         # ---- 日志 ----
         ttk.Label(root, text="日志:").pack(anchor="w", pady=(6, 0))
         self._log = tk.Text(root, height=8, wrap="none", state="disabled")
-        self._log.pack(fill="both")
-
-    def _make_path_row(self, parent, label: str, kind: str) -> tk.StringVar:
-        row = ttk.Frame(parent); row.pack(fill="x", pady=2)
-        ttk.Label(row, text=label, width=14, anchor="e").pack(side="left")
-        var = tk.StringVar()
-        ttk.Entry(row, textvariable=var).pack(
-            side="left", fill="x", expand=True, padx=4)
-        ttk.Button(row, text="浏览…",
-                   command=lambda v=var, k=kind: self._pick_path(v, k)).pack(
-            side="left")
-        return var
+        self._log.pack(fill="both", expand=True)
 
     # ============================================================
-    # 配置读写
+    # 配置保存
     # ============================================================
-    def _load_to_ui(self) -> None:
-        c = self._config
-        self._var_input_excel.set(c.input_excel)
-        self._var_movie_root.set(c.movie_root)
-        self._var_cover_dir.set(c.cover_source_dir)
-        self._var_sheet_index.set(str(c.sheet_index))
-        self._var_header_row.set(str(c.header_row))
-        self._var_code_col.set(c.code_column)
-        self._var_cover_col.set(c.cover_column)      # ← 新增
-        self._var_title_col.set(c.title_column)
-        self._var_actor_cols.set(c.actor_columns)
-        self._var_rating_cols.set(c.rating_columns)
-        self._var_genre_cols.set(c.genre_columns)
-        self._var_personal_cols.set(c.personal_comment_columns)
-        self._var_user_cols.set(c.user_comment_columns)
-        self._var_nfo_mode.set(
-            _NFO_MODES_REVERSE.get(c.nfo_mode, "每个视频生成同名 NFO"))
-        self._var_cover_naming.set(
-            _COVER_NAMINGS_REVERSE.get(c.cover_naming, "两种都复制"))
-        self._var_copy_cover.set(c.copy_cover)
-        self._var_overwrite.set(c.overwrite_existing)
-
-    def _ui_to_config(self) -> JellyfinNfoConfig:
-        def _i(s, default):
-            try:
-                return int(s)
-            except (TypeError, ValueError):
-                return default
-
-        return JellyfinNfoConfig(
-            input_excel=self._var_input_excel.get().strip(),
-            movie_root=self._var_movie_root.get().strip(),
-            cover_source_dir=self._var_cover_dir.get().strip(),
-            sheet_index=_i(self._var_sheet_index.get(), 1),
-            header_row=_i(self._var_header_row.get(), 1),
-            code_column=self._var_code_col.get().strip() or "番号",
-            cover_column=self._var_cover_col.get().strip() or "封面",     # ← 新增
-            title_column=self._var_title_col.get().strip() or "标题",
-            actor_columns=self._var_actor_cols.get().strip(),
-            rating_columns=self._var_rating_cols.get().strip(),
-            genre_columns=self._var_genre_cols.get().strip(),
-            personal_comment_columns=self._var_personal_cols.get().strip(),
-            user_comment_columns=self._var_user_cols.get().strip(),
-            nfo_mode=_NFO_MODES.get(self._var_nfo_mode.get(), "per_video"),
-            cover_naming=_COVER_NAMINGS.get(
-                self._var_cover_naming.get(), "both"),
-            copy_cover=bool(self._var_copy_cover.get()),
-            overwrite_existing=bool(self._var_overwrite.get()),
-            recent_input_excels=list(self._config.recent_input_excels),
-            recent_movie_roots=list(self._config.recent_movie_roots),
-            recent_cover_dirs=list(self._config.recent_cover_dirs),
-        )
-
     def _on_save_config(self) -> None:
         try:
-            self._config = self._ui_to_config()
+            self._config = self._form.collect()
             self._config.save(self._config_path)
         except Exception as e:
             messagebox.showerror("保存失败", str(e), parent=self._parent())
@@ -284,32 +121,12 @@ class JellyfinNfoPlugin:
         messagebox.showinfo("成功", "插件配置已保存。", parent=self._parent())
 
     # ============================================================
-    # 文件选择
-    # ============================================================
-    def _pick_path(self, var: tk.StringVar, kind: str) -> None:
-        cur = var.get().strip()
-        if kind == "dir":
-            p = filedialog.askdirectory(initialdir=cur or None,
-                                        parent=self._parent())
-        elif kind == "file":
-            init = str(Path(cur).parent) if cur else None
-            p = filedialog.askopenfilename(
-                initialdir=init,
-                filetypes=[("Excel", "*.xlsx *.xlsm"), ("所有文件", "*.*")],
-                parent=self._parent(),
-            )
-        else:
-            return
-        if p:
-            var.set(p)
-
-    # ============================================================
     # 提取图片
     # ============================================================
     def _on_extract(self) -> None:
         if self._working:
             return
-        self._config = self._ui_to_config()
+        self._config = self._form.collect()
         try:
             self._config.save(self._config_path)
         except OSError:
@@ -347,7 +164,7 @@ class JellyfinNfoPlugin:
                 excel_path=self._config.input_excel,
                 sheet_index=self._config.sheet_index,
                 code_column_name=self._config.code_column,
-                cover_column_name=self._config.cover_column,      # ← 新增
+                cover_column_name=self._config.cover_column,
                 header_row=self._config.header_row,
                 output_dir=self._config.cover_source_dir,
                 on_log=log,
@@ -380,7 +197,7 @@ class JellyfinNfoPlugin:
     def _on_generate(self) -> None:
         if self._working:
             return
-        self._config = self._ui_to_config()
+        self._config = self._form.collect()
         try:
             self._config.save(self._config_path)
         except OSError:

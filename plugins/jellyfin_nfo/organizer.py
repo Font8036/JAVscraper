@@ -92,7 +92,7 @@ def _copy_covers(
     copied: list = []
     ext = cover_src.suffix or ".jpg"
 
-    if config.cover_naming in ("same_as_video", "both"):
+    if config.cover_naming in ("与视频同名", "两种都复制"):
         for v in videos:
             dst = folder / f"{v.stem}{ext}"
             try:
@@ -101,7 +101,7 @@ def _copy_covers(
             except OSError as e:
                 logger.warning("复制封面 %s 失败: %s", dst, e)
 
-    if config.cover_naming in ("code", "both"):
+    if config.cover_naming in ("用番号命名", "两种都复制"):
         dst = folder / f"{code}{ext}"
         if dst.name not in copied:
             try:
@@ -119,13 +119,13 @@ def _write_nfo_files(
 ) -> int:
     written = 0
 
-    if config.nfo_mode in ("per_video", "both"):
+    if config.nfo_mode in ("每个视频生成同名 NFO", "两种都生成"):
         for v in videos:
             path = folder / f"{v.stem}.nfo"
             if _write_if_allowed(path, content, config.overwrite_existing):
                 written += 1
 
-    if config.nfo_mode in ("movie_nfo", "both"):
+    if config.nfo_mode in ("只生成 movie.nfo", "两种都生成"):
         path = folder / "movie.nfo"
         if _write_if_allowed(path, content, config.overwrite_existing):
             written += 1

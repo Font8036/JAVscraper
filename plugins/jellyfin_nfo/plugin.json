@@ -1,6 +1,6 @@
 {
   "name": "Jellyfin NFO",
-  "version": "1.0",
+  "version": "1.2",
   "entry": "tab:JellyfinNfoPlugin",
   "description": "从刮削表格提取封面，并生成 Jellyfin 兼容的 NFO 文件",
   "dependencies": ["openpyxl"]

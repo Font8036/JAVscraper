@@ -8,37 +8,111 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 
+_NFO_MODE_CHOICES = [
+    "每个视频生成同名 NFO",
+    "只生成 movie.nfo",
+    "两种都生成",
+]
+_COVER_NAMING_CHOICES = [
+    "两种都复制",
+    "与视频同名",
+    "用番号命名",
+]
+
+
 @dataclass
 class JellyfinNfoConfig:
-    # 路径
-    input_excel: str = ""
-    movie_root: str = ""
-    cover_source_dir: str = ""
+    # ---- 路径 ----
+    input_excel: str = field(default="", metadata={
+        "label": "输入 Excel", "kind": "file",
+        "tooltip": "刮削结果的 Excel（通常是 JavDB 插件生成的）。",
+    })
+    movie_root: str = field(default="", metadata={
+        "label": "电影文件目录", "kind": "dir",
+        "tooltip": "待处理的电影文件夹根目录，每个子文件夹名应为番号。",
+    })
+    cover_source_dir: str = field(default="", metadata={
+        "label": "封面源目录", "kind": "dir",
+        "tooltip": "从 Excel 提取的封面保存到哪里；生成 NFO 时从这里复制封面。",
+    })
 
-    # Excel 解析
-    sheet_index: int = 1           # 第几个工作表（从 1 开始）
-    header_row: int = 1            # 列名所在行
+    # ---- Excel 解析 ----
+    sheet_index: int = field(default=1, metadata={
+        "label": "工作表序号", "kind": "int",
+        "row_group": "excel_pos",
+        "tooltip": "第几个工作表（从 1 开始）。",
+    })
+    header_row: int = field(default=1, metadata={
+        "label": "列名所在行", "kind": "int",
+        "row_group": "excel_pos",
+        "tooltip": "列名在第几行。",
+    })
 
-    code_column: str = "番号"                       # 单列
-    cover_column: str = "封面"                      # 单列
-    title_column: str = "标题"                      # 单列
-    actor_columns: str = "演员"                     # 多列，逗号分隔
-    rating_columns: str = "评分"                    # 多列
-    genre_columns: str = "类别"                     # 多列
-    personal_comment_columns: str = "个人评论"      # 多列
-    user_comment_columns: str = "网友评论"          # 多列
+    code_column: str = field(default="番号", metadata={
+        "label": "番号", "kind": "str", "width": 7,
+        "row_group": "excel_cols",
+    })
+    cover_column: str = field(default="封面", metadata={
+        "label": "封面", "kind": "str", "width": 7,
+        "row_group": "excel_cols",
+    })
+    title_column: str = field(default="标题", metadata={
+        "label": "标题", "kind": "str", "width": 7,
+        "row_group": "excel_cols",
+    })
+    actor_columns: str = field(default="演员", metadata={
+        "label": "演员", "kind": "str", "width": 8,
+        "row_group": "excel_cols",
+        "tooltip": "支持多列，用 , 分隔。",
+    })
+    rating_columns: str = field(default="评分", metadata={
+        "label": "评分", "kind": "str", "width": 8,
+        "row_group": "excel_cols",
+    })
+    genre_columns: str = field(default="类别", metadata={
+        "label": "类别", "kind": "str", "width": 8,
+        "row_group": "excel_cols",
+    })
+    personal_comment_columns: str = field(default="个人评论", metadata={
+        "label": "个人评论", "kind": "str", "width": 10,
+        "row_group": "excel_cols",
+    })
+    user_comment_columns: str = field(default="网友评论", metadata={
+        "label": "网友评论", "kind": "str", "width": 10,
+        "row_group": "excel_cols",
+    })
 
-    # NFO 选项
-    nfo_mode: str = "per_video"             # per_video / movie_nfo / both
-    cover_naming: str = "same_as_video"     # same_as_video / code / both
-    copy_cover: bool = True
-    overwrite_existing: bool = True
+    # ---- NFO 选项 ----
+    nfo_mode: str = field(default="每个视频生成同名 NFO", metadata={
+        "label": "NFO 模式", "kind": "choice",
+        "choices": _NFO_MODE_CHOICES,
+        "row_group": "nfo_opts",
+        "tooltip": "每个视频生成同名 NFO；或统一生成 movie.nfo；或两者都生成。",
+    })
+    cover_naming: str = field(default="两种都复制", metadata={
+        "label": "封面命名", "kind": "choice",
+        "choices": _COVER_NAMING_CHOICES,
+        "row_group": "nfo_opts",
+        "tooltip": "把封面复制到电影文件夹时的命名方式。",
+    })
+    copy_cover: bool = field(default=True, metadata={
+        "label": "复制封面", "kind": "bool",
+        "row_group": "nfo_switches",
+    })
+    overwrite_existing: bool = field(default=True, metadata={
+        "label": "覆盖已有 NFO", "kind": "bool",
+        "row_group": "nfo_switches",
+    })
 
-    # 历史
-    recent_input_excels: list = field(default_factory=list)
-    recent_movie_roots: list = field(default_factory=list)
-    recent_cover_dirs: list = field(default_factory=list)
+    # ---- 历史（隐藏）----
+    recent_input_excels: list = field(
+        default_factory=list, metadata={"hidden": True})
+    recent_movie_roots: list = field(
+        default_factory=list, metadata={"hidden": True})
+    recent_cover_dirs: list = field(
+        default_factory=list, metadata={"hidden": True})
 
+    # ---------- 读写 ----------
     @classmethod
     def load(cls, path: Path) -> "JellyfinNfoConfig":
         if not path.exists():
@@ -52,8 +126,26 @@ class JellyfinNfoConfig:
             data = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             return cls()
+
         known = {f.name for f in dataclasses.fields(cls)}
         filtered = {k: v for k, v in data.items() if k in known}
+
+        # 旧版本用的是英文 key，做一次迁移
+        legacy_nfo = {
+            "per_video": "每个视频生成同名 NFO",
+            "movie_nfo": "只生成 movie.nfo",
+            "both": "两种都生成",
+        }
+        legacy_cover = {
+            "same_as_video": "与视频同名",
+            "code": "用番号命名",
+            "both": "两种都复制",
+        }
+        if filtered.get("nfo_mode") in legacy_nfo:
+            filtered["nfo_mode"] = legacy_nfo[filtered["nfo_mode"]]
+        if filtered.get("cover_naming") in legacy_cover:
+            filtered["cover_naming"] = legacy_cover[filtered["cover_naming"]]
+
         return cls(**filtered)
 
     def save(self, path: Path) -> None:

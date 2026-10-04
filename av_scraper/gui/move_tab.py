@@ -17,7 +17,7 @@ from .common import QueueLogHandler
 from ..widgets import HistoryPathInput, Column, SortableTreeview
 
 _OPS_FILENAME = "move_operations.json"
-
+_LABEL_WIDTH = 10          # 左列标签的统一宽度，和配置页风格一致
 
 class MoveTab(ttk.Frame):
     def __init__(self, master, app):
@@ -35,7 +35,10 @@ class MoveTab(ttk.Frame):
     # ---------- 布局 ----------
     def _build(self) -> None:
         row1 = ttk.Frame(self); row1.pack(fill="x", pady=(0, 2))
-        ttk.Label(row1, text="输入 JSON:").pack(side="left")
+        ttk.Label(
+            row1, text="输入 JSON:",
+            width=_LABEL_WIDTH, anchor="e",
+        ).pack(side="left")
         self.input_var = tk.StringVar()
         ttk.Entry(row1, textvariable=self.input_var).pack(
             side="left", padx=4, fill="x", expand=True)
@@ -45,6 +48,7 @@ class MoveTab(ttk.Frame):
             self,
             label="目标目录:",
             kind="dir",
+            label_width=_LABEL_WIDTH,     # ← 新增
             get_value=lambda: (
                 self.app.app_config.processor.recent_target_dirs[0]
                 if self.app.app_config.processor.recent_target_dirs

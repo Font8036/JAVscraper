@@ -28,6 +28,8 @@ from typing import Any, Optional
 
 from .tooltip import LabelWithTip, QuestionMark
 
+# row_group 行的左缩进宽度（字符数），用于让 checkbox/mixed 行不跟着长输入框对齐
+_ROW_GROUP_INDENT = 2
 
 class ConfigForm(ttk.Frame):
     def __init__(self, parent, config_cls, instance: Any = None):
@@ -54,17 +56,24 @@ class ConfigForm(ttk.Frame):
 
     @staticmethod
     def _calc_label_width(visible_fields) -> int:
-        """只按有左侧标签的字段计算宽度。
-        bool 的文本在按钮右侧，list 的标签在顶部，都不参与。"""
+        """只按"独立成行"的字段计算左侧预留宽度。
+
+        跳过：
+        - bool：文字在按钮右侧，不占左侧
+        - list：标签在顶部，不占左侧
+        - row_group 里的字段：和其它字段共用一行，标签不参与左对齐
+        """
         max_w = 0
         for f in visible_fields:
             kind = f.metadata.get("kind", "str")
             if kind in ("bool", "list"):
                 continue
+            if f.metadata.get("row_group"):
+                continue
             label = f.metadata.get("label", f.name) + ":"
-            w = sum(2 if ord(c) > 127 else 1 for c in label)
+            w = int(sum((1.8 if ord(c) > 127 else 1) for c in label))
             max_w = max(max_w, w)
-        return max(8, max_w + 1)
+        return max(6, max_w)
 
     @staticmethod
     def _group_row_fields(all_fields) -> list[list]:
@@ -112,9 +121,14 @@ class ConfigForm(ttk.Frame):
     def _render_single(self, f, label_width: int) -> None:
         row = ttk.Frame(self)
         row.pack(fill="x", pady=2)
-        self._row_frames[f.name] = row                  # ← 新增
-        label = f.metadata.get("label", f.name)
+
         kind = f.metadata.get("kind", "str")
+
+        # 长条输入框贴左；短字段缩进，与 bool 行对齐
+        if kind not in ("str", "dir", "file", "save"):
+            ttk.Label(row, text="", width=_ROW_GROUP_INDENT).pack(side="left")
+
+        label = f.metadata.get("label", f.name)
         tip = f.metadata.get("tooltip")
 
         LabelWithTip(
@@ -128,7 +142,7 @@ class ConfigForm(ttk.Frame):
     def _render_bool_row(self, row_fields: list, label_width: int) -> None:
         row = ttk.Frame(self)
         row.pack(fill="x", pady=2)
-        ttk.Label(row, text="", width=label_width).pack(side="left")
+        ttk.Label(row, text="", width=_ROW_GROUP_INDENT).pack(side="left")
 
         for i, f in enumerate(row_fields):
             label = f.metadata.get("label", f.name)
@@ -169,7 +183,7 @@ class ConfigForm(ttk.Frame):
         """混合类型行：bool 显示为 Checkbutton，其它显示为 标签+控件。"""
         row = ttk.Frame(self)
         row.pack(fill="x", pady=2)
-        ttk.Label(row, text="", width=label_width).pack(side="left")
+        ttk.Label(row, text="", width=_ROW_GROUP_INDENT).pack(side="left")
 
         for i, f in enumerate(row_fields):
             kind = f.metadata.get("kind", "str")

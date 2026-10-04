@@ -52,8 +52,6 @@ class ScanTab(ttk.Frame):
             save=lambda: self.app.app_config.save(self.app.config_path),
         )
         self.dir_input.pack(side="left", fill="x", expand=True, padx=4)
-        self.btn_scan = ttk.Button(top, text="开始扫描", command=self._on_scan)
-        self.btn_scan.pack(side="left", padx=4)
 
         # 状态判定辅助（把 ScrapeResult 翻译成展示/排序信息）
         def _status_rank(r):
@@ -75,6 +73,18 @@ class ScanTab(ttk.Frame):
             if r.inherited:
                 return ("inherited",)
             return ("extracted",) if r.is_extracted else ("original",)
+
+        # -------- 按钮行 --------
+        actions = ttk.Frame(self)
+        actions.pack(fill="x", pady=6)
+        self.btn_scan = ttk.Button(
+            actions, text="开始扫描", command=self._on_scan,
+        )
+        self.btn_scan.pack(side="left")
+        self.stats_var = tk.StringVar(value="尚未扫描")
+        ttk.Label(actions, textvariable=self.stats_var).pack(
+            side="left", padx=12,
+        )
 
         self.result_tree = SortableTreeview(
             self,
@@ -106,10 +116,7 @@ class ScanTab(ttk.Frame):
         )
         self.result_tree.pack(fill="both", expand=True, pady=(8, 0))
 
-        self.stats_var = tk.StringVar(value="尚未扫描")
-        ttk.Label(self, textvariable=self.stats_var).pack(anchor="w", pady=4)
-
-        ttk.Label(self, text="日志:").pack(anchor="w")
+        ttk.Label(self, text="日志:").pack(anchor="w", pady=(6, 0))
         self.log = tk.Text(self, height=8, wrap="none", state="disabled")
         self.log.pack(fill="both")
 

@@ -146,9 +146,13 @@ def build_excel(
             # 5 空列
             worksheet.write(row_idx, 5, "", cell_fmt)
             # 6 评分（超链接）
-            if rec["评分"] and rec["链接"]:
-                worksheet.write_url(row_idx, 6, rec["链接"], link_fmt, rec["评分"])
+            if rec["链接"]:
+                # 有链接就一定写成超链接，评分缺失时显示"无评分"
+                display = rec["评分"] or "无评分"
+                worksheet.write_url(
+                    row_idx, 6, rec["链接"], link_fmt, display)
             else:
+                # 无链接（通常是爬取失败的行），只显示评分
                 worksheet.write(row_idx, 6, rec["评分"] or "", cell_fmt)
             # 7 类别
             worksheet.write(row_idx, 7, rec["类别"] or "", cell_fmt)

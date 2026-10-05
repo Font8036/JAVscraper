@@ -31,7 +31,7 @@ class SubtitleCatConfig:
     # ---- 路径 ----
     input_excel: str = field(default="", metadata={
         "label": "输入 Excel", "kind": "file", "ext": ".xlsx",
-        "tooltip": "番号清单，第一列一行一个。",
+        "tooltip": "番号清单，第一列一行一个，无需表头。",
     })
     target_dir: str = field(default="", metadata={
         "label": "目标目录", "kind": "dir",
@@ -60,18 +60,18 @@ class SubtitleCatConfig:
         "label": "请求间隔(秒)", "kind": "float",
         "row_group": "params_num",
     })
-    page_timeout: int = field(default=60, metadata={
+    page_timeout: int = field(default=10, metadata={
         "label": "超时(秒)", "kind": "int",
         "row_group": "params_num",
     })
-    max_retries: int = field(default=2, metadata={
+    max_retries: int = field(default=1, metadata={
         "label": "重试次数", "kind": "int",
         "row_group": "params_num",
     })
     translate_timeout: int = field(default=30, metadata={
         "label": "等待翻译(秒)", "kind": "int",
         "row_group": "translate_params",
-        "tooltip": "点击「翻译」后，等待网站生成下载链接的最长时间。",
+        "tooltip": "点击「翻译」后，等待网站生成下载链接的最长时间。\n超时后如果还没生成下载链接，则记为翻译超时。",
     })
     round_delay: float = field(default=3.0, metadata={
         "label": "轮间等待(秒)", "kind": "float",
@@ -80,7 +80,7 @@ class SubtitleCatConfig:
     })
 
     # ---- 开关 ----
-    save_state_on_exit: bool = field(default=False, metadata={
+    save_state_on_exit: bool = field(default=True, metadata={
         "label": "退出时保存登录状态", "kind": "bool",
         "row_group": "switches",
     })
@@ -88,7 +88,7 @@ class SubtitleCatConfig:
         "label": "完成时响铃", "kind": "bool",
         "row_group": "switches",
     })
-    notify_toast: bool = field(default=False, metadata={
+    notify_toast: bool = field(default=True, metadata={
         "label": "完成时发系统通知", "kind": "bool",
         "row_group": "switches",
     })

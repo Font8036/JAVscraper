@@ -107,12 +107,14 @@ class JavdbSource:
             form = ConfigForm(frame, JavdbSourceConfig)
             form.pack(fill="both", expand=True)
             forms["main"] = form
-            extra = ttk.Frame(frame)
-            extra.pack(fill="x", pady=(8, 0))
-            ttk.Button(
-                extra, text="导入浏览器 Cookie",
-                command=self._on_import_cookies,
-            ).pack(side="left")
+
+            # 把「导入浏览器 Cookie」按钮塞到"登录状态"那一行
+            state_row = form.get_row_frame("state_file")
+            if state_row is not None:
+                ttk.Button(
+                    state_row, text="导入浏览器 Cookie",
+                    command=self._on_import_cookies,
+                ).pack(side="left", padx=(4, 0))
             return frame
 
         def load(cfg):

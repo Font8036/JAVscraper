@@ -55,25 +55,25 @@ class JellyfinNfoConfig:
         default=1, metadata={
             "label": "列名所在行", "kind": "int",
             "row_group": "excel_pos",
-            "tooltip": "列名在第几行。",
+            "tooltip": "列名在第几行。\n下方输入框中即为生成.nfo时，相应信息的列名。\n其中番号，封面，标题只允许输入一个列名；演员，评分，类别，个人评论，网友评论可以输入多个列名，用逗号分隔。",
         }
     )
 
     code_column: str = field(
         default="番号", metadata={
-            "label": "番号", "kind": "str", "width": 7,
+            "label": "番号", "kind": "str", "width": 8,
             "row_group": "excel_cols",
         }
     )
     cover_column: str = field(
         default="封面", metadata={
-            "label": "封面", "kind": "str", "width": 7,
+            "label": "封面", "kind": "str", "width": 8,
             "row_group": "excel_cols",
         }
     )
     title_column: str = field(
         default="标题", metadata={
-            "label": "标题", "kind": "str", "width": 7,
+            "label": "标题", "kind": "str", "width": 8,
             "row_group": "excel_cols",
         }
     )
@@ -87,25 +87,29 @@ class JellyfinNfoConfig:
     rating_columns: str = field(
         default="评分", metadata={
             "label": "评分", "kind": "str", "width": 8,
-            "row_group": "excel_cols",
+            "row_group": "excel_cols2",
+            "tooltip": "支持多列，用 , 分隔。",
         }
     )
     genre_columns: str = field(
         default="类别", metadata={
             "label": "类别", "kind": "str", "width": 8,
-            "row_group": "excel_cols",
+            "row_group": "excel_cols2",
+            "tooltip": "支持多列，用 , 分隔。",
         }
     )
     personal_comment_columns: str = field(
         default="个人评论", metadata={
-            "label": "个人评论", "kind": "str", "width": 10,
-            "row_group": "excel_cols",
+            "label": "个人评论", "kind": "str", "width": 12,
+            "row_group": "excel_cols2",
+            "tooltip": "支持多列，用 , 分隔。",
         }
     )
     user_comment_columns: str = field(
         default="网友评论", metadata={
-            "label": "网友评论", "kind": "str", "width": 10,
-            "row_group": "excel_cols",
+            "label": "网友评论", "kind": "str", "width": 12,
+            "row_group": "excel_cols2",
+            "tooltip": "支持多列，用 , 分隔。",
         }
     )
 

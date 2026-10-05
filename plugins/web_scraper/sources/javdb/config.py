@@ -30,7 +30,7 @@ class JavdbSourceConfig:
     # ---- 路径 ----
     input_excel: str = field(default="", metadata={
         "label": "输入 Excel", "kind": "file", "ext": ".xlsx",
-        "tooltip": "待爬取的番号清单，第一列一行一个。",
+        "tooltip": "待爬取的番号清单，第一列一行一个，无需表头。",
     })
     cover_dir: str = field(default="", metadata={
         "label": "封面目录", "kind": "dir",
@@ -62,20 +62,20 @@ class JavdbSourceConfig:
         "label": "请求间隔(秒)", "kind": "float",
         "row_group": "params_num",
     })
-    page_timeout: int = field(default=60, metadata={
+    page_timeout: int = field(default=10, metadata={
         "label": "超时(秒)", "kind": "int",
         "row_group": "params_num",
     })
-    max_retries: int = field(default=2, metadata={
+    max_retries: int = field(default=1, metadata={
         "label": "重试次数", "kind": "int",
         "row_group": "params_num",
     })
     # ---- 开关 ----
-    skip_existing_covers: bool = field(default=False, metadata={
+    skip_existing_covers: bool = field(default=True, metadata={
         "label": "跳过已存在的封面", "kind": "bool",
         "row_group": "switches",
     })
-    save_state_on_exit: bool = field(default=False, metadata={
+    save_state_on_exit: bool = field(default=True, metadata={
         "label": "退出时保存登录状态", "kind": "bool",
         "row_group": "switches",
     })
@@ -83,7 +83,7 @@ class JavdbSourceConfig:
         "label": "完成时响铃", "kind": "bool",
         "row_group": "switches",
     })
-    notify_toast: bool = field(default=False, metadata={
+    notify_toast: bool = field(default=True, metadata={
         "label": "完成时发系统通知", "kind": "bool",
         "row_group": "switches",
     })

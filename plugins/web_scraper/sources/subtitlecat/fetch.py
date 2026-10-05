@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -93,7 +94,14 @@ async def scrape_subtitlecat(
         page.set_default_timeout(config.page_timeout_ms)
 
         try:
-            await page.goto(config.base_url, wait_until="load")
+            # 首次打开主页，网络慢，给 5 倍超时
+            first_load_timeout = config.page_timeout_ms * 5
+            log(f"正在打开主页（超时 {first_load_timeout // 1000} 秒）…")
+            await page.goto(
+                config.base_url,
+                wait_until="load",
+                timeout=first_load_timeout,
+            )
             log(f"已打开：{page.url}")
 
             # ============================================================
@@ -332,13 +340,21 @@ async def _parse_search_results(page) -> list[SearchResult]:
 
     for row in rows:
         # 标题 / 链接
-        link_el = await row.query_selector("td:nth-of-type(1) a")
-        if not link_el:
+        # 文本用 td 拿（含 source_lang 后缀），链接从内部的 a 拿
+        td_el = await row.query_selector("td:nth-of-type(1)")
+        if not td_el:
             continue
-        title_raw = (await link_el.inner_text()).strip()
-        href = await link_el.get_attribute("href") or ""
+
+        a_el = await td_el.query_selector("a")
+        if not a_el:
+            continue
+        href = await a_el.get_attribute("href") or ""
         if not href:
             continue
+
+        raw_text = (await td_el.inner_text()).strip()
+        # inner_text 里可能出现换行 / 多余空白，先归一化
+        title_raw = re.sub(r"\s+", " ", raw_text).strip()
 
         clean, lang_raw, lang_cn, is_cn = parse_title(title_raw)
 

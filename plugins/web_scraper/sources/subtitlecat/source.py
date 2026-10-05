@@ -481,16 +481,21 @@ class SubtitleCatSource:
                 on_progress=progress,
             ))
 
-            # 直接生成 Excel
+            # 生成 Excel
+            excel_ok = True
+            excel_error = ""
             try:
                 build_excel(records, self._config.output_excel,
                             on_log=log)
                 log(f"已生成报告：{self._config.output_excel}")
             except Exception as e:
+                excel_ok = False
+                excel_error = str(e)
                 log(f"[错误] 生成报告失败：{e}")
                 log(traceback.format_exc())
 
-            self._queue.put(("fetch_done", len(records)))
+            self._queue.put(
+                ("fetch_done", (len(records), excel_ok, excel_error)))
         except Exception as e:
             self._queue.put(("log", f"[错误] 爬取失败：{e}"))
             self._queue.put(("log", traceback.format_exc()))
@@ -542,29 +547,47 @@ class SubtitleCatSource:
             total = len(self._rows)
             self._status_var.set(f"爬取中 {idx + 1}/{total}")
 
-    def _finish_fetch(self, count: Optional[int]) -> None:
+    def _finish_fetch(self, payload) -> None:
         self._working = False
         if self._btn_fetch: self._btn_fetch.configure(state="normal")
         if self._btn_stop: self._btn_stop.configure(state="disabled")
 
-        if count is None:
-            if self._status_var: self._status_var.set("爬取失败")
-            summary = "爬取失败"
-        else:
+        # 爬取整体失败
+        if payload is None:
             if self._status_var:
-                self._status_var.set(f"爬取完成，共 {count} 条")
-            summary = f"共处理 {count} 条"
+                self._status_var.set("爬取失败")
+            if self._config.notify_sound:
+                play_beep()
+            messagebox.showerror(
+                "爬取失败",
+                "爬取过程中出现错误，详情见日志。",
+                parent=self._parent())
+            return
 
-        # 完成提示
+        count, excel_ok, excel_error = payload
+        summary = f"共处理 {count} 条"
+        if self._status_var:
+            self._status_var.set(f"爬取完成，共 {count} 条")
+
+        # 完成提示（声音 / 系统通知）
         if self._config.notify_toast:
             show_toast("字幕猫爬取完成", summary)
         if self._config.notify_sound:
             play_beep()
 
-        if count is not None:
+        if excel_ok:
             messagebox.showinfo(
                 "完成",
                 f"{summary}\n\n报告已保存到：\n{self._config.output_excel}",
+                parent=self._parent())
+        else:
+            messagebox.showwarning(
+                "完成（报告生成失败）",
+                f"{summary}\n\n"
+                f"但报告保存失败：\n{excel_error}\n\n"
+                f"目标路径：\n{self._config.output_excel}\n\n"
+                "常见原因：该文件正被 WPS / Excel 打开。\n"
+                "请关闭文件后重新爬取，或改用其它文件名。",
                 parent=self._parent())
 
     # ---------- 日志 ----------

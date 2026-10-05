@@ -10,11 +10,19 @@ sys.path.insert(0, str(ROOT / "plugins"))
 # 让 PyInstaller 静态分析到所有插件的依赖。
 # 不要用 try/except 吞异常——打包时如果 import 失败要显式报错，
 # 否则 PyInstaller 会静默跳过整个插件的依赖分析。
-import javdb.tab        # noqa: F401
-import javdb.fetch      # noqa: F401
-import javdb.parse      # noqa: F401
-import javdb.report     # noqa: F401
-import javdb.config     # noqa: F401
+try:
+    import web_scraper.tab               # noqa: F401
+    import web_scraper.config            # noqa: F401
+    import web_scraper.shared.browser    # noqa: F401
+    import web_scraper.shared.notify     # noqa: F401
+    import web_scraper.sources           # noqa: F401
+    import web_scraper.sources.javdb.source    # noqa: F401
+    import web_scraper.sources.javdb.config    # noqa: F401
+    import web_scraper.sources.javdb.fetch     # noqa: F401
+    import web_scraper.sources.javdb.parse     # noqa: F401
+    import web_scraper.sources.javdb.report    # noqa: F401
+except ImportError:
+    pass
 
 import jellyfin_nfo.tab            # noqa: F401
 import jellyfin_nfo.config         # noqa: F401

@@ -16,6 +16,6 @@ pyi-archive_viewer
 files/
 files_*/
 test_*/
-
+test/
 # 保留脚本本身
 !gen_test_files.py

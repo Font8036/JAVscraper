@@ -83,6 +83,16 @@ class WebScraperPlugin:
                 pages.append(page)
         return pages
 
+    def apply_layout(self) -> None:
+        for source in self._sources:
+            fn = getattr(source, "apply_layout", None)
+            if callable(fn):
+                try:
+                    fn()
+                except Exception:
+                    logger.exception(
+                        "源 %s 应用布局失败", getattr(source, "name", "?"))
+
     def sync_from_config(self) -> None:
         for source in self._sources:
             sync = getattr(source, "sync_from_config", None)

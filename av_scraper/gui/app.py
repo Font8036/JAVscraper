@@ -86,6 +86,9 @@ class App(tk.Tk):
 
         self._load_plugins(nb)   # ★
 
+        # 插件加载完毕，统一应用一次布局
+        self._apply_layout_all()
+
     def _show_about(self) -> None:
         from .dialogs import show_about
         from .. import __version__
@@ -114,6 +117,21 @@ class App(tk.Tk):
                 except Exception:
                     logger.exception("插件 %s 同步配置失败",
                                      getattr(plugin, "name", "?"))
+        # 应用布局偏好
+        self._apply_layout_all()
+
+    def _apply_layout_all(self) -> None:
+        widgets = [self.scan_tab, self.move_tab]
+        for plugin in getattr(self, "_loaded_plugins", []):
+            widgets.append(plugin)
+        for w in widgets:
+            fn = getattr(w, "apply_layout", None)
+            if callable(fn):
+                try:
+                    fn()
+                except Exception:
+                    logger.exception("应用布局失败：%s",
+                                     getattr(w, "name", "?"))
 
     def _save_config(self) -> None:
         """供插件调用：把当前 app_config 写回磁盘。"""

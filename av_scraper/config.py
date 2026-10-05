@@ -157,6 +157,22 @@ class AppConfig:
             "kind": "int",
         },
     )
+    
+    # ===== 新增 =====
+    log_height: int = field(
+        default=8,
+        metadata={
+            "label": "日志区高度（行）", "kind": "int",
+            "tooltip": "各页面日志区显示的行数。",
+        },
+    )
+    table_height: int = field(
+        default=6,
+        metadata={
+            "label": "表格区高度（行）", "kind": "int",
+            "tooltip": "各页面表格默认显示的行数。",
+        },
+    )
 
     # ---------- 读写 ----------
     @classmethod

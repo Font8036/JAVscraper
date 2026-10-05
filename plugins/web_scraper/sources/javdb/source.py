@@ -88,6 +88,13 @@ class JavdbSource:
     def is_busy(self) -> bool:
         return self._working or self._browser_session is not None
 
+    def apply_layout(self) -> None:
+        cfg = self.ctx.app_config
+        if self._result_tree is not None:
+            self._result_tree.tree.configure(height=cfg.table_height)
+        if self._log is not None:
+            self._log.configure(height=cfg.log_height)
+
     def sync_from_config(self) -> None:
         # 配置只在配置窗口里改，主界面无需同步
         pass
@@ -193,7 +200,7 @@ class JavdbSource:
         self._result_tree = SortableTreeview(
             root,
             key=lambda r: f"row_{r.idx}",
-            height=6,
+            height=self.ctx.app_config.table_height,
             searchable=True,
             columns=[
                 Column("target", "目标番号", 140,
@@ -222,8 +229,8 @@ class JavdbSource:
         self._result_tree.pack(fill="both", expand=True, pady=(8, 0))
 
         ttk.Label(root, text="日志:").pack(anchor="w", pady=(6, 0))
-        self._log = tk.Text(root, height=8, wrap="none", state="disabled")
-        self._log.pack(fill="both", expand=True)
+        self._log = tk.Text(root, height=self.ctx.app_config.log_height, wrap="none", state="disabled")
+        self._log.pack(fill="both")
 
     def _schedule(self, fn, delay_ms: int = 200) -> None:
         if self._root is not None:

@@ -88,6 +88,13 @@ class JellyfinNfoPlugin:
             save=save, current=current, default=default,
         )]
 
+    def apply_layout(self) -> None:
+        cfg = self.ctx.app_config
+        if self.result_tree is not None:
+            self.result_tree.tree.configure(height=cfg.table_height)
+        if self._log is not None:
+            self._log.configure(height=cfg.log_height)
+
     def sync_from_config(self) -> None:
         # 配置只在配置窗口里改，主界面无需同步
         pass
@@ -126,7 +133,7 @@ class JellyfinNfoPlugin:
         self.result_tree = SortableTreeview(
             root,
             key=lambda r: r["code"],
-            height=6,
+            height=self.ctx.app_config.table_height,
             searchable=True,
             columns=[
                 Column("code", "番号", 140,
@@ -160,7 +167,7 @@ class JellyfinNfoPlugin:
 
         # ---- 日志 ----
         ttk.Label(root, text="日志:").pack(anchor="w", pady=(6, 0))
-        self._log = tk.Text(root, height=10, wrap="none", state="disabled")
+        self._log = tk.Text(root, height=self.ctx.app_config.log_height, wrap="none", state="disabled")
         self._log.pack(fill="both")
 
     # ============================================================

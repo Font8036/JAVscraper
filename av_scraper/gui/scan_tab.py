@@ -88,7 +88,7 @@ class ScanTab(ttk.Frame):
 
         self.result_tree = SortableTreeview(
             self,
-            height=10,
+            height=self.app.app_config.table_height,
             columns=[
                 Column("icon", "", 40,
                        display=_icon, sort=_status_rank,
@@ -117,7 +117,7 @@ class ScanTab(ttk.Frame):
         self.result_tree.pack(fill="both", expand=True, pady=(8, 0))
 
         ttk.Label(self, text="日志:").pack(anchor="w", pady=(6, 0))
-        self.log = tk.Text(self, height=8, wrap="none", state="disabled")
+        self.log = tk.Text(self, height=self.app.app_config.log_height, wrap="none", state="disabled")
         self.log.pack(fill="both")
 
     def _attach_logger(self) -> None:
@@ -129,6 +129,13 @@ class ScanTab(ttk.Frame):
         handler.setFormatter(logging.Formatter("%(message)s"))
         for name in ("av_scraper.scraper", "av_scraper.reports"):
             logging.getLogger(name).addHandler(handler)
+
+    def apply_layout(self) -> None:
+        cfg = self.app.app_config
+        if self.result_tree is not None:
+            self.result_tree.tree.configure(height=cfg.table_height)
+        if self.log is not None:
+            self.log.configure(height=cfg.log_height)
 
     # ---------- 外部接口 ----------
     def sync_from_config(self) -> None:

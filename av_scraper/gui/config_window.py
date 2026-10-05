@@ -38,7 +38,6 @@ class ConfigWindow(tk.Toplevel):
         self.title("配置")
         self.geometry("860x640")
         self.minsize(660, 480)
-        self.transient(parent)      # type: ignore[arg-type]
 
         self._pages: dict[str, ConfigPage] = {}
         self._build(pages)
@@ -51,7 +50,6 @@ class ConfigWindow(tk.Toplevel):
         self.geometry(f"+{max(0, x)}+{max(0, y)}")
 
         self.protocol("WM_DELETE_WINDOW", self._on_cancel)
-        self.grab_set()
 
     # ============================================================
     # 构建

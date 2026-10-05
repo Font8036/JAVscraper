@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 class WebScraperPlugin:
     name = "爬虫"
-    version = "1.0.0"
+    version = "1.1"
 
     def __init__(self, ctx: PluginContext) -> None:
         self.ctx = ctx

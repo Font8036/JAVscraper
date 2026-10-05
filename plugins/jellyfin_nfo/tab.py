@@ -25,9 +25,7 @@ logger = logging.getLogger(__name__)
 
 class JellyfinNfoPlugin:
     name = "Jellyfin NFO"
-    version = "1.3"
-
-    _form: ConfigForm       # ← 加这一行，告诉 Pylance 所有实例都有此属性
+    version = "1.4"
 
     def __init__(self, ctx: PluginContext) -> None:
         self.ctx = ctx
@@ -35,7 +33,6 @@ class JellyfinNfoPlugin:
         self._config = JellyfinNfoConfig.load(self._config_path)
         self._queue: queue.Queue = queue.Queue()
         self._working = False
-        self._root: Optional[ttk.Frame] = None
 
     def _resolve_config_path(self) -> Path:
         meipass = getattr(sys, "_MEIPASS", None)
@@ -53,7 +50,6 @@ class JellyfinNfoPlugin:
         root = ttk.Frame(notebook, padding=8)
         self._root = root
         self._build(root)
-        self._form.load_from(self._config)
         root.after(80, self._poll)
         return root
 
@@ -79,8 +75,6 @@ class JellyfinNfoPlugin:
         def save(cfg):
             cfg.save(self._config_path)
             self._config = cfg
-            if self._form is not None:
-                self._form.load_from(cfg)
 
         def current():
             return self._config
@@ -95,25 +89,25 @@ class JellyfinNfoPlugin:
         )]
 
     def sync_from_config(self) -> None:
-        if self._form is not None:
-            self._form.load_from(self._config)
+        # 配置只在配置窗口里改，主界面无需同步
+        pass
 
     # ============================================================
     # UI
     # ============================================================
     def _build(self, root: ttk.Frame) -> None:
-        # ---- 配置区 ----
-        cfg_frame = ttk.LabelFrame(root, text="配置", padding=8)
-        cfg_frame.pack(fill="x", pady=(0, 6))
-
-        self._form = ConfigForm(cfg_frame, JellyfinNfoConfig)
-        self._form.pack(fill="x")
+        # ---- 提示 ----
+        hint = ttk.Frame(root)
+        hint.pack(fill="x", pady=(0, 4))
+        ttk.Label(
+            hint,
+            text="⚙ 所有配置项已移至右下角「配置」窗口。",
+            foreground="#888",
+        ).pack(side="left")
 
         # ---- 按钮区 ----
         actions = ttk.Frame(root, padding=(0, 4))
         actions.pack(fill="x")
-        ttk.Button(actions, text="保存配置",
-                   command=self._on_save_config).pack(side="left")
         self._btn_extract = ttk.Button(
             actions, text="提取图片", command=self._on_extract)
         self._btn_extract.pack(side="left", padx=(8, 0))
@@ -170,28 +164,11 @@ class JellyfinNfoPlugin:
         self._log.pack(fill="both")
 
     # ============================================================
-    # 配置保存
-    # ============================================================
-    def _on_save_config(self) -> None:
-        try:
-            self._config = self._form.collect()
-            self._config.save(self._config_path)
-        except Exception as e:
-            messagebox.showerror("保存失败", str(e), parent=self._parent())
-            return
-        messagebox.showinfo("成功", "插件配置已保存。", parent=self._parent())
-
-    # ============================================================
     # 提取图片
     # ============================================================
     def _on_extract(self) -> None:
         if self._working:
             return
-        self._config = self._form.collect()
-        try:
-            self._config.save(self._config_path)
-        except OSError:
-            pass
 
         if not self._config.input_excel:
             messagebox.showwarning("提示", "请先选择输入 Excel",
@@ -258,11 +235,6 @@ class JellyfinNfoPlugin:
     def _on_generate(self) -> None:
         if self._working:
             return
-        self._config = self._form.collect()
-        try:
-            self._config.save(self._config_path)
-        except OSError:
-            pass
 
         checks = [
             (self._config.input_excel, "输入 Excel"),

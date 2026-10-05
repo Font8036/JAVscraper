@@ -44,12 +44,11 @@ class JavdbSource:
         self._stop_event = threading.Event()
         self._working = False
         self._root: Optional[ttk.Frame] = None
-        self._form: Optional[ConfigForm] = None
+
         self._result_tree: Optional[SortableTreeview] = None
         self._log: Optional[tk.Text] = None
         self._status_var: Optional[tk.StringVar] = None
 
-        self._btn_save: Optional[ttk.Button] = None
         self._btn_open_browser: Optional[ttk.Button] = None
         self._btn_close_browser: Optional[ttk.Button] = None
         self._btn_fetch: Optional[ttk.Button] = None
@@ -83,8 +82,6 @@ class JavdbSource:
         root = ttk.Frame(parent, padding=8)
         self._root = root
         self._build(root)
-        if self._form is not None:
-            self._form.load_from(self._config)
         root.after(80, self._poll)
         return root
 
@@ -92,8 +89,8 @@ class JavdbSource:
         return self._working or self._browser_session is not None
 
     def sync_from_config(self) -> None:
-        if self._form is not None:
-            self._form.load_from(self._config)
+        # 配置只在配置窗口里改，主界面无需同步
+        pass
 
     def config_page(self) -> ConfigPage:
         forms: dict[str, ConfigForm] = {}
@@ -120,8 +117,6 @@ class JavdbSource:
         def save(cfg: JavdbSourceConfig):
             self._config = cfg
             self.plugin.save_config()
-            if self._form is not None:
-                self._form.load_from(cfg)
 
         def current():
             return self._config
@@ -139,29 +134,20 @@ class JavdbSource:
     # UI 构建
     # ============================================================
     def _build(self, root: ttk.Frame) -> None:
-        cfg_frame = ttk.LabelFrame(root, text="配置", padding=8)
-        cfg_frame.pack(fill="x", pady=(0, 6))
-
-        self._form = ConfigForm(cfg_frame, JavdbSourceConfig)
-        self._form.pack(fill="x")
-
-        state_row = self._form.get_row_frame("state_file")
-        if state_row is not None:
-            ttk.Button(
-                state_row, text="导入浏览器 Cookie",
-                command=self._on_import_cookies,
-            ).pack(side="left", padx=(4, 0))
+        hint = ttk.Frame(root)
+        hint.pack(fill="x", pady=(0, 4))
+        ttk.Label(
+            hint,
+            text="⚙ 所有配置项已移至右下角「配置」窗口。",
+            foreground="#888",
+        ).pack(side="left")
 
         actions = ttk.Frame(root, padding=(0, 4))
         actions.pack(fill="x")
 
-        self._btn_save = ttk.Button(
-            actions, text="保存配置", command=self._on_save_config)
-        self._btn_save.pack(side="left")
-
         self._btn_open_browser = ttk.Button(
             actions, text="启动浏览器", command=self._on_open_browser)
-        self._btn_open_browser.pack(side="left", padx=(8, 0))
+        self._btn_open_browser.pack(side="left")
         self._btn_close_browser = ttk.Button(
             actions, text="关闭浏览器", command=self._on_close_browser,
             state="disabled")
@@ -244,29 +230,11 @@ class JavdbSource:
             self._root.after(delay_ms, fn)
 
     # ============================================================
-    # 保存配置
-    # ============================================================
-    def _on_save_config(self) -> None:
-        if self._form is None:
-            return
-        try:
-            self._config = self._form.collect()
-            self.plugin.save_config()
-        except Exception as e:
-            messagebox.showerror("保存失败", str(e), parent=self._parent())
-            return
-        messagebox.showinfo("成功", "配置已保存。", parent=self._parent())
-
-    # ============================================================
     # 浏览器会话
     # ============================================================
     def _on_open_browser(self) -> None:
         if self._working or self._browser_session is not None:
             return
-        if self._form is None:
-            return
-        self._config = self._form.collect()
-        self.plugin.save_config()
 
         if not self._config.state_file:
             if not messagebox.askyesno(
@@ -290,7 +258,6 @@ class JavdbSource:
         if self._btn_fetch: self._btn_fetch.configure(state="disabled")
         if self._btn_stop: self._btn_stop.configure(state="disabled")
         if self._btn_report: self._btn_report.configure(state="disabled")
-        if self._btn_save: self._btn_save.configure(state="disabled")
         if self._status_var: self._status_var.set("浏览器启动中…")
 
         session.start()
@@ -346,7 +313,6 @@ class JavdbSource:
         if self._btn_close_browser: self._btn_close_browser.configure(state="disabled")
         if self._btn_fetch: self._btn_fetch.configure(state="normal")
         if self._btn_report: self._btn_report.configure(state="normal")
-        if self._btn_save: self._btn_save.configure(state="normal")
         if self._btn_stop: self._btn_stop.configure(state="disabled")
         if self._status_var: self._status_var.set("就绪")
 
@@ -386,8 +352,6 @@ class JavdbSource:
             return
 
         self._config.state_file = str(out)
-        if self._form is not None:
-            self._form.load_from(self._config)
         self.plugin.save_config()
 
         messagebox.showinfo(
@@ -437,10 +401,6 @@ class JavdbSource:
     def _on_fetch(self) -> None:
         if self._working or self._browser_session is not None:
             return
-        if self._form is None:
-            return
-        self._config = self._form.collect()
-        self.plugin.save_config()
 
         if not self._config.input_excel:
             messagebox.showwarning(
@@ -523,9 +483,6 @@ class JavdbSource:
     def _on_build_excel(self) -> None:
         if self._working or self._browser_session is not None:
             return
-        if self._form is None:
-            return
-        self._config = self._form.collect()
 
         checks = [
             (self._config.output_csv, "输出 CSV 路径"),

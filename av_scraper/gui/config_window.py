@@ -35,6 +35,9 @@ class ConfigPage:
 class ConfigWindow(tk.Toplevel):
     def __init__(self, parent: tk.Misc, pages: list[ConfigPage]):
         super().__init__(parent)
+        # 关键：先隐藏窗口，布局全部完成后再显示，避免左上角闪现
+        self.withdraw()
+
         self.title("配置")
         self.geometry("860x640")
         self.minsize(660, 480)
@@ -43,11 +46,18 @@ class ConfigWindow(tk.Toplevel):
         self._build(pages)
         self._load_all()
 
-        # 居中
+        # 计算居中位置
         self.update_idletasks()
-        x = parent.winfo_rootx() + (parent.winfo_width() - self.winfo_width()) // 2
-        y = parent.winfo_rooty() + (parent.winfo_height() - self.winfo_height()) // 2
-        self.geometry(f"+{max(0, x)}+{max(0, y)}")
+        width = self.winfo_width()
+        height = self.winfo_height()
+        x = parent.winfo_rootx() + (parent.winfo_width() - width) // 2
+        y = parent.winfo_rooty() + (parent.winfo_height() - height) // 2
+
+        # 用完整 geometry（尺寸 + 位置）一次性设置
+        self.geometry(f"{width}x{height}+{max(0, x)}+{max(0, y)}")
+
+        # 显示窗口
+        self.deiconify()
 
         self.protocol("WM_DELETE_WINDOW", self._on_cancel)
 

@@ -14,7 +14,9 @@
   - [多列合并规则](#多列合并规则)
   - [NFO 生成](#nfo-生成)
   - [封面复制](#封面复制)
+  - [插件结构](#插件结构)
   - [配置路径解析](#配置路径解析)
+  - [UI 构建](#ui-构建)
 - [扩展点](#扩展点)
 - [已知限制](#已知限制)
 
@@ -31,7 +33,7 @@
 | `image_extractor.py` | 从 xlsx 内部提取封面，输出到本地目录 |
 | `nfo_builder.py` | 生成 NFO XML |
 | `organizer.py` | 遍历电影文件夹，复制封面，写 NFO |
-| `tab.py` | GUI，实现 `Plugin` 协议 |
+| `tab.py` | GUI，实现 `Plugin` 协议 + `config_page()` |
 
 ---
 
@@ -164,12 +166,12 @@ def _resolve_cols(headers, name_str):
 `organizer._copy_covers` 按 `cover_naming` 配置决定复制哪些文件：
 
 ```python
-if cover_naming in ("same_as_video", "both"):
+if cover_naming in ("与视频同名", "两种都复制"):
     for v in videos:
         dst = folder / f"{v.stem}{ext}"
         shutil.copy2(cover_src, dst)
 
-if cover_naming in ("code", "both"):
+if cover_naming in ("用番号命名", "两种都复制"):
     dst = folder / f"{code}{ext}"
     if dst.name not in copied:
         shutil.copy2(cover_src, dst)
@@ -177,12 +179,153 @@ if cover_naming in ("code", "both"):
 
 用 `copied` 集合避免同一份文件被复制两次（视频名和番号相同时）。
 
+### 插件结构
+
+`tab.py` 里的 `JellyfinNfoPlugin` 同时承担三个角色：
+
+**1. 实现 `Plugin` 协议**
+
+```python
+class JellyfinNfoPlugin:
+    name = "Jellyfin NFO"
+    version = "1.0.0"
+
+    def __init__(self, ctx: PluginContext) -> None: ...
+    def create_tab(self, notebook) -> ttk.Frame: ...
+    def config_pages(self) -> list[ConfigPage]: ...
+```
+
+**2. 主界面 Tab** —— 只保留操作
+
+```
+⚙ 所有配置项已移至右下角「配置」窗口。
+[提取图片] [生成 NFO]  状态: 就绪
+搜索: [____] [全部列▾] ☐正则   N
+┌─────────────────────────────┐
+│ 番号  视频数  封面  NFO  状态 │
+└─────────────────────────────┘
+日志:
+┌─────────────────────────────┐
+└─────────────────────────────┘
+```
+
+配置项**不再出现在主界面**，全部移到配置窗口。
+
+**3. 配置窗口页** —— `config_pages()` 返回一个 `ConfigPage`
+
+```python
+def config_pages(self):
+    forms = {}
+
+    def build(parent):
+        frame = ttk.Frame(parent)
+        form = ConfigForm(frame, JellyfinNfoConfig)
+        form.pack(fill="both", expand=True)
+        forms["main"] = form
+        return frame
+
+    def load(cfg):
+        forms["main"].load_from(cfg)
+
+    def collect():
+        return forms["main"].collect()
+
+    def save(cfg):
+        cfg.save(self._config_path)
+        self._config = cfg
+
+    def current():
+        return self._config
+
+    def default():
+        return JellyfinNfoConfig()
+
+    return [ConfigPage(
+        title=self.name,
+        build=build, load=load, collect=collect,
+        save=save, current=current, default=default,
+    )]
+```
+
+配置表单由 `ConfigForm` 组件根据 `JellyfinNfoConfig` 的 dataclass metadata 自动生成。
+
 ### 配置路径解析
 
-`JellyfinNfoPlugin._resolve_config_path` 和 JavDB 插件的逻辑一致：
+`JellyfinNfoPlugin._resolve_config_path`：
+
+```python
+def _resolve_config_path(self) -> Path:
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass and str(self.ctx.plugin_dir).startswith(str(meipass)):
+        return Path(sys.executable).resolve().parent / "jellyfin_nfo_config.json"
+    return self.ctx.plugin_dir / "config.json"
+```
 
 - **源码运行**：`plugins/jellyfin_nfo/config.json`
-- **完整版 exe**：写到 exe 同级的 `jellyfin_nfo_config.json`
+- **完整版 exe**：写到 exe 同级的 `jellyfin_nfo_config.json`（因为 `plugin_dir` 指向 `_MEIPASS` 中的只读副本，写不进去）
+
+### UI 构建
+
+`_build` 的结构：
+
+```python
+def _build(self, root: ttk.Frame) -> None:
+    # ---- 提示行 ----
+    hint = ttk.Frame(root)
+    hint.pack(fill="x", pady=(0, 4))
+    ttk.Label(
+        hint,
+        text="⚙ 所有配置项已移至右下角「配置」窗口。",
+        foreground="#888",
+    ).pack(side="left")
+
+    # ---- 按钮区 ----
+    actions = ttk.Frame(root, padding=(0, 4))
+    actions.pack(fill="x")
+    self._btn_extract = ttk.Button(
+        actions, text="提取图片", command=self._on_extract)
+    self._btn_extract.pack(side="left")
+    self._btn_generate = ttk.Button(
+        actions, text="生成 NFO", command=self._on_generate)
+    self._btn_generate.pack(side="left", padx=4)
+    # ...状态标签...
+
+    # ---- 表格 ----
+    self.result_tree = SortableTreeview(
+        root,
+        height=self.ctx.app_config.table_height,
+        columns=[
+            Column("code", "番号", ...),
+            Column("videos", "视频数", ...),
+            Column("cover", "封面", ...),
+            Column("nfo", "NFO", ...),
+            Column("status", "状态", ...),
+        ],
+        ...
+    )
+    self.result_tree.pack(fill="both", expand=True, pady=(8, 0))
+
+    # ---- 日志 ----
+    ttk.Label(root, text="日志:").pack(anchor="w", pady=(6, 0))
+    self._log = tk.Text(
+        root, height=self.ctx.app_config.log_height,
+        wrap="none", state="disabled",
+    )
+    self._log.pack(fill="both", expand=True)
+```
+
+**支持的运行时布局刷新**：
+
+```python
+def apply_layout(self) -> None:
+    cfg = self.ctx.app_config
+    if self.result_tree is not None:
+        self.result_tree.tree.configure(height=cfg.table_height)
+    if self._log is not None:
+        self._log.configure(height=cfg.log_height)
+```
+
+核心的 `App.refresh_from_config` 会在配置保存后调用它，实现"改完表格/日志高度立即生效"。
 
 ---
 
@@ -199,7 +342,7 @@ if cover_naming in ("code", "both"):
 - `<art>` 背景图
 - `<mpaa>` 分级
 
-这些字段的数据来源可以在 `excel_reader` 里从表格列读出来，加到 `movie_data` 里。
+这些字段的数据来源可以在 `excel_reader` 里从表格列读出来，加到 `movie_data` 里。对应的配置项（列名映射）在 `config.py` 的 `JellyfinNfoConfig` 里加字段即可，GUI 会自动渲染。
 
 ### 支持其它图片格式的提取
 
@@ -212,7 +355,7 @@ if cover_naming in ("code", "both"):
 
 ### 从 CSV 读数据
 
-除了 Excel，也可以从 JavDB 插件的中间 CSV 读数据。CSV 格式稳定（字段是 JSON 里明确定义的），但**没有经过解析**——演员、评分、类别还需要调 `parser.py` 里的函数再解析一次。
+除了 Excel，也可以从爬虫插件生成的 CSV 读数据。CSV 格式稳定（字段是 JSON 里明确定义的），但**没有经过解析**——演员、评分、类别还需要调 `parser.py` 里的函数再解析一次。
 
 ### 自动转换图片格式
 
@@ -229,6 +372,14 @@ with Image.open(cover_src) as im:
 ### NFO 模板化
 
 如果想让用户自定义 NFO 结构，可以把 `build_nfo` 改成读一个模板文件（如 Jinja2 模板），替换变量后输出。这会让配置多一个「NFO 模板」字段，灵活度提高但复杂度上升。
+
+### 加配置项
+
+在 `config.py` 的 `JellyfinNfoConfig` 里加一行 `field(metadata={"label": ..., "kind": ...})`：
+
+- 配置窗口的 `ConfigForm` 会自动渲染新控件；
+- 源码里读 `self._config.xxx` 即可；
+- **不需要改 `tab.py`**（除非需要在 UI 上做特殊处理）。
 
 ---
 
@@ -257,3 +408,11 @@ with Image.open(cover_src) as im:
 ### 评论字段没有长度限制
 
 如果 `personal_comment` 或 `user_comment` 内容极长（几万字），NFO 文件会很大。Jellyfin 对 NFO 大小没有硬限制，但过大的文件加载慢。可以考虑加一个截断配置。
+
+### 字段名与其它插件不统一
+
+`web_scraper` 的两个源用 `self._result_tree` 命名表格字段，本插件用 `self.result_tree`。**功能上无影响**，但代码走读时容易搞混。将来可以统一。
+
+### 表格与日志的初始高度
+
+表格和日志的初始高度读的是 `AppConfig.table_height` / `AppConfig.log_height`。如果这两个配置项缺失（比如老版本升级上来），会走 dataclass 的默认值（6 / 8）。**首次运行时如果界面高度不对**，检查 `config.json` 里是否有这两个字段。

@@ -121,21 +121,24 @@ class ConfigForm(ttk.Frame):
     def _render_single(self, f, label_width: int) -> None:
         row = ttk.Frame(self)
         row.pack(fill="x", pady=2)
-        self._row_frames[f.name] = row                  # ← 这一行
-
+        self._row_frames[f.name] = row
         kind = f.metadata.get("kind", "str")
-
-        # 长条输入框贴左；短字段缩进，与 bool 行对齐
-        if kind not in ("str", "dir", "file", "save"):
-            ttk.Label(row, text="", width=_ROW_GROUP_INDENT).pack(side="left")
-
         label = f.metadata.get("label", f.name)
         tip = f.metadata.get("tooltip")
 
-        LabelWithTip(
-            row, label + ":", tip=tip,
-            width=label_width, anchor="e",
-        ).pack(side="left")
+        if kind in ("str", "dir", "file", "save"):
+            # 长条输入框：标签右对齐到统一宽度，输入框起点对齐
+            LabelWithTip(
+                row, label + ":", tip=tip,
+                width=label_width, anchor="e",
+            ).pack(side="left")
+        else:
+            # 短字段（bool 之外的 int / float / choice）：
+            # 缩进 2 字符，标签左对齐，与勾选框左边界一致
+            ttk.Label(row, text="", width=_ROW_GROUP_INDENT).pack(side="left")
+            LabelWithTip(
+                row, label + ":", tip=tip, anchor="w",
+            ).pack(side="left")
 
         widget = self._make_widget(row, f)
         self._widgets[f.name] = (kind, widget)

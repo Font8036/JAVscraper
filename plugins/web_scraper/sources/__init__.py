@@ -37,7 +37,9 @@ class Source(Protocol):
 
 # ---------- 源注册 ----------
 from .javdb.source import JavdbSource
+from .subtitlecat.source import SubtitleCatSource
 
 SOURCES: list[type] = [
     JavdbSource,
+    SubtitleCatSource,
 ]

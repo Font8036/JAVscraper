@@ -8,11 +8,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .sources.javdb.config import JavdbSourceConfig
-
+from .sources.subtitlecat.config import SubtitleCatConfig
 
 @dataclass
 class ScraperPluginConfig:
     javdb: JavdbSourceConfig = field(default_factory=JavdbSourceConfig)
+    subtitlecat: SubtitleCatConfig = field(default_factory=SubtitleCatConfig)
 
     @classmethod
     def load(cls, path: Path) -> "ScraperPluginConfig":
@@ -53,9 +54,9 @@ class ScraperPluginConfig:
             encoding="utf-8",
         )
 
-
 def _sub_config_class(field_name: str):
-    """字段名 → 子配置类。新增源时在这里加一行。"""
     if field_name == "javdb":
         return JavdbSourceConfig
+    if field_name == "subtitlecat":
+        return SubtitleCatConfig
     return None

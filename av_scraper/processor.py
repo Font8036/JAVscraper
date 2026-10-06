@@ -8,8 +8,11 @@ import shutil
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Callable, Optional
-
+from .defaults import DEFAULT_ATTACHMENT_EXTENSIONS, DEFAULT_VIDEO_EXTENSIONS
 from .config import ProcessorConfig
+_VIDEO_EXTENSIONS = DEFAULT_VIDEO_EXTENSIONS
+_ATTACHMENT_EXTENSIONS = DEFAULT_ATTACHMENT_EXTENSIONS
+
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +37,10 @@ class MoveOperation:
 class FileProcessor:
     def __init__(self, config: ProcessorConfig):
         self.config = config
+        # 附件跟随需要知道哪些扩展名是视频/附件，直接从 ScraperConfig 拿不到，
+        # 但扩展名分类本身与"提取"无关，用一个独立的小集合即可
+        self._video_exts = {e.lower() for e in _VIDEO_EXTENSIONS}
+        self._attachment_exts = {e.lower() for e in _ATTACHMENT_EXTENSIONS}
 
     # ---------- 载入结果 ----------
     @staticmethod
@@ -45,15 +52,52 @@ class FileProcessor:
             return json.load(f)
 
     # ---------- 规划 ----------
+
     def plan(self, results: list[dict]) -> list[PlannedOperation]:
         extracted = [r for r in results if r.get("status") == "extracted"]
+        if self.config.attachment_naming == "跟随视频命名":
+            return self._plan_follow_video(extracted)
+        return self._plan_by_code(extracted)
+
+    def _plan_by_code(self, extracted: list[dict]) -> list[PlannedOperation]:
         taken: set[str] = set()
         planned: list[PlannedOperation] = []
-
         for r in extracted:
             src = Path(r["file_path"])
             code = r["extracted_code"]
-            target = self._target_path(src, code)
+            target = self._target_path(
+                src, code,
+                is_attachment=self._is_attachment(src),   # ← 新增
+            )
+            final, status = self._resolve_conflict(target, taken)
+            planned.append(PlannedOperation(
+                src=src,
+                dst=final if final else target,
+                status=status,
+                extracted_code=code,
+            ))
+            taken.add(str(final if final else target))
+        return planned
+
+    def _plan_follow_video(self, extracted: list[dict]) -> list[PlannedOperation]:
+        """同目录附件跟随视频命名。规则：
+
+        - 先规划每个目录里的视频（按 `_target_path` 现有逻辑）。
+        - 目录里恰好一个视频时，其他附件跟随该视频的目标名（换扩展名）。
+        - 目录里 0 个或多个视频时，附件退回按码命名。
+
+        只按目录分组，不做跨目录配对——跨目录需要用户二次扫描。
+        """
+        # 1. 按目录分组
+        by_dir: dict[Path, list[dict]] = {}
+        for r in extracted:
+            d = Path(r["file_path"]).parent
+            by_dir.setdefault(d, []).append(r)
+
+        taken: set[str] = set()
+        planned: list[PlannedOperation] = []
+
+        def _emit(src: Path, target: Path, code: str) -> None:
             final, status = self._resolve_conflict(target, taken)
             planned.append(PlannedOperation(
                 src=src,
@@ -63,10 +107,54 @@ class FileProcessor:
             ))
             taken.add(str(final if final else target))
 
+        for items in by_dir.values():
+            videos = [r for r in items if self._is_video(r["file_path"])]
+            main_video = videos[0] if len(videos) == 1 else None
+
+            # 主视频先规划，拿到它的目标路径
+            video_target: Optional[Path] = None
+            if main_video is not None:
+                code = main_video["extracted_code"]
+                target = self._target_path(Path(main_video["file_path"]), code)
+                _emit(Path(main_video["file_path"]), target, code)
+                video_target = target
+
+            for r in items:
+                if main_video is not None and r is main_video:
+                    continue
+                src = Path(r["file_path"])
+                code = r["extracted_code"]
+                if (main_video is not None
+                        and video_target is not None
+                        and self._is_attachment(r["file_path"])):
+                    _emit(src, video_target.with_suffix(src.suffix), code)
+                else:
+                    _emit(src, self._target_path(src, code), code)
+
         return planned
 
-    def _target_path(self, src: Path, code: str) -> Path:
-        name = f"{code}{src.suffix}" if self.config.enable_rename else src.name
+    def _is_video(self, path: str | Path) -> bool:
+        return Path(path).suffix.lower() in self._video_exts
+
+    def _is_attachment(self, path: str | Path) -> bool:
+        return Path(path).suffix.lower() in self._attachment_exts
+
+    def _target_path(
+        self, src: Path, code: str, *, is_attachment: bool = False,
+    ) -> Path:
+        if is_attachment:
+            # follow_video 不会走到这里（plan() 已分派到 _plan_follow_video）
+            mode = self.config.attachment_naming
+            if mode == "保留原文件名":
+                name = src.name
+            else:                       # "code"
+                name = f"{code}{src.suffix}"
+        else:
+            if self.config.video_naming == "保留原文件名":
+                name = src.name
+            else:                       # "code"
+                name = f"{code}{src.suffix}"
+
         if self.config.move_to_extracted_folder:
             return Path(self.config.target_directory) / code / name
         return Path(self.config.target_directory) / name
@@ -78,9 +166,9 @@ class FileProcessor:
             return target, "move"
 
         handling = self.config.existing_file_handling
-        if handling == "skip":
+        if handling == "跳过":
             return None, "skip"
-        if handling == "overwrite":
+        if handling == "覆盖":
             return target, "overwrite"
 
         # rename：追加 _01 / _02 …

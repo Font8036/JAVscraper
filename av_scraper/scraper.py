@@ -39,7 +39,9 @@ class CodeExtractor:
 
     def __init__(self, config: ScraperConfig):
         self.config = config
-        self._supported_exts = {e.lower() for e in config.supported_extensions}
+        self._video_exts = {e.lower() for e in config.video_extensions}
+        self._attachment_exts = {e.lower() for e in config.attachment_extensions}
+        self._supported_exts = self._video_exts | self._attachment_exts
         self._compile_patterns()
 
     # ---------- 预编译 ----------
@@ -117,6 +119,12 @@ class CodeExtractor:
     def is_supported(self, filename: str) -> bool:
         return Path(filename).suffix.lower() in self._supported_exts
 
+    def is_video(self, filename: str) -> bool:
+        return Path(filename).suffix.lower() in self._video_exts
+
+    def is_attachment(self, filename: str) -> bool:
+        return Path(filename).suffix.lower() in self._attachment_exts
+    
     def scan_directory(
         self,
         directory: str | Path,

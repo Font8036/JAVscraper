@@ -36,11 +36,15 @@ BKC COA CUS KNMB SKJK JKW JUSD KWSM SORA TGAV VGQ GIRO NAMHVR GHKO EMP MCDV
 CESD OFES JKBX JUNY MKB PPSD URPW MTALL PFES JURA LULU RHN
 """.split()
 
-
-DEFAULT_EXTENSIONS = [
-    # 视频
+# 视频扩展名
+DEFAULT_VIDEO_EXTENSIONS = [
     ".mp4", ".avi", ".mkv", ".wmv", ".mov", ".flv", ".webm", ".rmvb",
     ".m4v", ".3gp", ".ts", ".mts", ".m2ts", ".vob", ".mpg", ".m3u8",
-    # 镜像 / 字幕
-    ".iso", ".img", ".srt", ".ass",
+    # 整盘镜像按"视频"归类——它是内容本体，不是附件
+    ".iso", ".img",
+]
+
+# 附件扩展名（字幕等）
+DEFAULT_ATTACHMENT_EXTENSIONS = [
+    ".srt", ".ass",
 ]

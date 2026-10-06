@@ -12,7 +12,7 @@ import tkinter as tk
 from dataclasses import dataclass
 from tkinter import messagebox, ttk
 from typing import Any, Callable
-
+from .common import set_window_icon
 
 @dataclass
 class ConfigPage:
@@ -37,8 +37,8 @@ class ConfigWindow(tk.Toplevel):
         super().__init__(parent)
         # 关键：先隐藏窗口，布局全部完成后再显示，避免左上角闪现
         self.withdraw()
-
         self.title("配置")
+        set_window_icon(self)      # ← 加这一行
         self.geometry("860x640")
         self.minsize(660, 480)
 

@@ -1,14 +1,15 @@
 """主窗口。"""
 
 from __future__ import annotations
-
+import sys
 import dataclasses
 import logging
 import tkinter as tk
 from pathlib import Path
 from tkinter import ttk
 from dataclasses import replace
-
+from typing import Optional, cast
+from .common import set_window_icon
 from ..config import AppConfig, ProcessorConfig, ScraperConfig
 from ..paths import log_dir
 from ..plugin_api import PluginContext
@@ -29,12 +30,56 @@ class App(tk.Tk):
         self.title("JAVscraper")
         self.geometry("1180x820")
         self.minsize(960, 640)
-
+        set_window_icon(self)      # ← 就这一行
         self.config_path = config_path
         self.app_config = AppConfig.load(config_path)
-
+        # 关键：在构建任何控件之前设置缩放
+        self._apply_ui_scaling()
+        self._config_window: Optional[tk.Toplevel] = None
+        self._about_window: Optional[tk.Toplevel] = None
         self._build()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    def _apply_ui_scaling(self) -> None:
+        """按 DPI × 用户缩放系数设置 tk scaling。
+
+        必须在 _build() 之前调用——否则已创建的控件不会重新渲染字体。
+        """
+        try:
+            # 声明 DPI 感知后（见 __main__），这里返回真实屏幕 DPI：
+            # - 100% 缩放 + 96 DPI 屏幕 → 96
+            # - 200% 缩放 + 192 DPI 屏幕 → 192
+            dpi = self.winfo_fpixels("1i")
+
+            # 用户配置的百分比，落到合理区间
+            user_scale = max(0.5, min(3.0, self.app_config.ui_scale / 100.0))
+
+            # tk scaling 单位是"像素/点"：
+            # - 72 DPI = 1.0
+            # - 96 DPI = 1.333
+            # 再乘用户系数
+            self.tk.call("tk", "scaling", dpi / 72.0 * user_scale)
+            # 窗口也等比放大
+            w = int(1180 * user_scale)
+            h = int(820 * user_scale)
+            self.geometry(f"{w}x{h}")
+
+        except Exception:
+            logger.debug("设置界面缩放失败，使用默认值", exc_info=True)
+
+    def _set_window_icon(self) -> None:
+        try:
+            if getattr(sys, "frozen", False):
+                # 打包后，资源在 _MEIPASS 里
+                base = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
+                icon_path = base / "assets" / "icon.ico"
+            else:
+                icon_path = Path(__file__).resolve().parent.parent.parent / "assets" / "icon.ico"
+
+            if icon_path.exists():
+                self.iconbitmap(str(icon_path))
+        except Exception:
+            pass   # 图标设置失败不影响程序运行
 
     def _on_close(self):
         """关闭窗口前的确认。开关由 config.confirm_on_close 控制。"""
@@ -90,6 +135,10 @@ class App(tk.Tk):
         self._apply_layout_all()
 
     def _show_about(self) -> None:
+        '''显示关于对话框。'''
+        # 已经打开过就直接聚焦
+        if self._raise_if_exists(self._about_window):
+            return
         from .dialogs import show_about
         from .. import __version__
 
@@ -99,8 +148,7 @@ class App(tk.Tk):
             name = getattr(plugin, "name", "?")
             version = getattr(plugin, "version", "?")
             plugins.append((name, version))
-
-        show_about(self, plugins=plugins)
+        self._about_window = show_about(self, plugins=plugins)
 
     def set_status(self, text: str) -> None:
         self.status_var.set(text)
@@ -207,13 +255,29 @@ class App(tk.Tk):
             ).pack(anchor="w", pady=(12, 0))
         return frame
 
+    @staticmethod
+    def _raise_if_exists(window: Optional[tk.Toplevel]) -> bool:
+        """若窗口已存在则把它抬到前台并返回 True；否则返回 False。"""
+        if window is None:
+            return False
+        try:
+            if window.winfo_exists():
+                window.deiconify()      # 可能被最小化
+                window.lift()
+                window.focus_force()
+                return True
+        except tk.TclError:
+            pass
+        return False
+
     # ============================================================
     # 配置窗口
     # ============================================================
     def _open_config_window(self) -> None:
+        # 已经打开过就直接聚焦，不再新建
+        if self._raise_if_exists(self._config_window):
+            return
         pages = self._core_config_pages()
-
-        from typing import cast
 
         for plugin in getattr(self, "_loaded_plugins", []):
             getter = getattr(plugin, "config_pages", None)
@@ -226,7 +290,7 @@ class App(tk.Tk):
                 logger.exception("插件 %s 提供配置页失败", getattr(plugin, "name", "?"))
 
         try:
-            ConfigWindow(self, pages)
+            self._config_window = ConfigWindow(self, pages)
         except Exception:
             logger.exception("打开配置窗口失败")
 

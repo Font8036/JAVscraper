@@ -1,14 +1,15 @@
 """关于对话框 + 检查更新。"""
 
 from __future__ import annotations
-
+import sys
 import json
 import threading
 import tkinter as tk
 import urllib.request
 import webbrowser
+from pathlib import Path
 from tkinter import messagebox, ttk
-
+from .common import set_window_icon
 from .. import __version__
 
 _GITHUB_REPO = "Font8036/JAVscraper"
@@ -52,37 +53,85 @@ def fetch_latest_release() -> dict | None:
     except Exception:
         return None
 
+def _load_about_icon(size: int = 96):
+    """加载关于窗口顶部的大图。
 
-def show_about(parent: tk.Misc, plugins: list[tuple[str, str]] | None = None) -> None:
-    """关于对话框。"""
+    优先用 Pillow 缩放 icon.png；没装 Pillow 时退回显示原始大小。
+    返回 PhotoImage，或 None。
+    """
+    try:
+        if getattr(sys, "frozen", False):
+            base = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
+            icon_png = base / "assets" / "icon.png"
+        else:
+            icon_png = (Path(__file__).resolve().parent.parent.parent
+                        / "assets" / "icon.png")
+
+        if not icon_png.exists():
+            return None
+
+        try:
+            from PIL import Image, ImageTk
+        except ImportError:
+            # 没装 Pillow，退回用 tkinter 原生 PhotoImage
+            # 原生只支持 PNG/GIF，且不能用 subsample 做非整数缩放
+            from tkinter import PhotoImage
+            return PhotoImage(file=str(icon_png))
+
+        img = Image.open(icon_png).convert("RGBA")
+        # 兼容不同版本的 Pillow
+        resample = getattr(getattr(Image, "Resampling", Image),
+                           "LANCZOS", None)
+        if resample is not None:
+            img = img.resize((size, size), resample)
+        else:
+            img = img.resize((size, size))
+        return ImageTk.PhotoImage(img)
+    except Exception:
+        return None
+
+def show_about(parent, plugins=None):
     win = tk.Toplevel(parent)
+    # 关键：先隐藏，布局完再显示
+    win.withdraw()
+
     win.title("关于 JAVscraper")
     win.resizable(False, False)
-    win.transient(parent)       # type: ignore[arg-type]
+    set_window_icon(win)
 
     frame = ttk.Frame(win, padding=20)
     frame.pack(fill="both", expand=True)
 
-    ttk.Label(frame, text="JAVscraper",
-              font=("", 16, "bold")).pack(anchor="w")
-    ttk.Label(frame, text=f"版本 {__version__}",
-              foreground="#666").pack(anchor="w", pady=(0, 12))
+    # ---------- 顶部大图标（居中）----------
+    icon_img = _load_about_icon(96)
+    if icon_img is not None:
+        icon_label = ttk.Label(frame, image=icon_img)
+        setattr(icon_label, "image", icon_img)   # 保持引用，防止被 GC 回收
+        icon_label.pack(pady=(0, 12))
 
+    # ---------- 标题 ----------
+    ttk.Label(frame, text="JAVscraper",
+              font=("", 16, "bold")).pack()
+    ttk.Label(frame, text=f"版本 {__version__}",
+              foreground="#666").pack(pady=(2, 12))
+
+    # ---------- 简介 ----------
     ttk.Label(
         frame,
         text="文件名刮削与整理工具\n从文件名提取标准代码，批量移动 / 重命名文件。",
-        justify="left",
-    ).pack(anchor="w", pady=(0, 12))
+        justify="center",
+    ).pack(pady=(0, 12))
 
-    # GitHub 链接
+    # ---------- GitHub 链接 ----------
     link = tk.Label(frame, text="GitHub 仓库",
                     foreground="#0a58ca", cursor="hand2")
-    link.pack(anchor="w")
+    link.pack()
     link.bind("<Button-1>", lambda _e: webbrowser.open(_GITHUB_URL))
 
-    # 已加载插件
+    # ---------- 已加载插件 ----------
     if plugins:
-        ttk.Separator(frame, orient="horizontal").pack(fill="x", pady=12)
+        ttk.Separator(frame, orient="horizontal").pack(
+            fill="x", pady=12)
         ttk.Label(frame, text="已加载的插件：",
                   foreground="#666").pack(anchor="w")
         for name, version in plugins:
@@ -91,16 +140,16 @@ def show_about(parent: tk.Misc, plugins: list[tuple[str, str]] | None = None) ->
                 foreground="#666",
             ).pack(anchor="w")
 
+    # ---------- 环境 ----------
     ttk.Separator(frame, orient="horizontal").pack(fill="x", pady=12)
-
     env = (
-        f"Python {__import__('sys').version.split()[0]}\n"
+        f"Python {sys.version.split()[0]}\n"
         f"Tkinter {tk.TkVersion}"
     )
     ttk.Label(frame, text=env, foreground="#666",
               justify="left").pack(anchor="w")
 
-    # 按钮栏
+    # ---------- 按钮 ----------
     btns = ttk.Frame(frame)
     btns.pack(fill="x", pady=(16, 0))
 
@@ -113,27 +162,24 @@ def show_about(parent: tk.Misc, plugins: list[tuple[str, str]] | None = None) ->
                              foreground="#666", wraplength=380)
     status_label.pack(anchor="w", pady=(8, 0))
 
-    # ---- 检查更新的逻辑 ----
+    # ---------- 检查更新的逻辑 ----------
     def on_check() -> None:
         check_btn.configure(state="disabled")
         status_var.set("正在检查更新…")
 
         def worker() -> None:
             release = fetch_latest_release()
-            # 回到主线程更新 UI
             win.after(0, lambda: done(release))
 
-        def done(release: dict | None) -> None:
+        def done(release) -> None:
             check_btn.configure(state="normal")
             if release is None:
                 status_var.set("检查更新失败（网络不可用或被限流）。")
                 return
-
             remote = str(release.get("tag_name", "")).lstrip("vV")
             if not remote:
                 status_var.set("未获取到版本信息。")
                 return
-
             if _is_newer(remote, __version__):
                 status_var.set(f"发现新版本：{remote}")
                 notes = (release.get("body") or "").strip()
@@ -153,8 +199,13 @@ def show_about(parent: tk.Misc, plugins: list[tuple[str, str]] | None = None) ->
 
     check_btn.configure(command=on_check)
 
-    # 居中
+    # ---------- 居中 + 显示 ----------
     win.update_idletasks()
-    x = parent.winfo_rootx() + (parent.winfo_width() - win.winfo_width()) // 2
-    y = parent.winfo_rooty() + (parent.winfo_height() - win.winfo_height()) // 2
+    width = win.winfo_width()
+    height = win.winfo_height()
+    x = parent.winfo_rootx() + (parent.winfo_width() - width) // 2
+    y = parent.winfo_rooty() + (parent.winfo_height() - height) // 2
     win.geometry(f"+{max(0, x)}+{max(0, y)}")
+
+    win.deiconify()      # 布局完成，显示窗口
+    return win

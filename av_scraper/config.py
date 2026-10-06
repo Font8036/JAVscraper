@@ -173,6 +173,15 @@ class AppConfig:
             "tooltip": "各页面表格默认显示的行数。\n表格高度会随窗口大小自动调整，但不会小于这个值。",
         },
     )
+    ui_scale: int = field(
+        default=100,
+        metadata={
+            "label": "界面缩放(%)",
+            "kind": "int",
+            "tooltip": "100 = 系统默认大小；150 = 放大 50%。\n"
+                    "范围建议 75~200，改动后需重启程序生效。",
+        },
+    )
 
     # ---------- 读写 ----------
     @classmethod

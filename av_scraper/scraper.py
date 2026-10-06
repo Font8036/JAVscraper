@@ -27,6 +27,7 @@ class ScrapeResult:
     status: str                 # "extracted" | "original"
     file_size: int
     inherited: bool = False     # ← 新增
+    manually_edited: bool = False   # ← 新增：是否被用户手动修正过
 
     @property
     def is_extracted(self) -> bool:

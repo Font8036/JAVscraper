@@ -24,6 +24,7 @@ class ScanTab(ttk.Frame):
         self._q: queue.Queue[Any] = queue.Queue()
         self._scanning = False
         self._results: list[ScrapeResult] = []
+        self._current_json_path: Optional[Path] = None
         self._total_files = 0          # ← 新增
         self._scanned_count = 0        # ← 新增
         self._build()
@@ -55,11 +56,15 @@ class ScanTab(ttk.Frame):
 
         # 状态判定辅助（把 ScrapeResult 翻译成展示/排序信息）
         def _status_rank(r):
+            if r.manually_edited:
+                return 3
             if r.inherited:
                 return 2
             return 1 if r.is_extracted else 0
 
         def _status_text(r):
+            if r.manually_edited:
+                return "手动修改"
             if r.inherited:
                 return "从父目录继承"
             return "成功提取" if r.is_extracted else "保持原样"
@@ -70,6 +75,8 @@ class ScanTab(ttk.Frame):
             return "✓" if r.is_extracted else "✗"
 
         def _tag(r):
+            if r.manually_edited:
+                return ("edited",)
             if r.inherited:
                 return ("inherited",)
             return ("extracted",) if r.is_extracted else ("original",)
@@ -99,7 +106,9 @@ class ScanTab(ttk.Frame):
                        stretch=True),
                 Column("code", "提取码", 200,
                        display=lambda r: r.extracted_code,
-                       sort=lambda r: r.extracted_code.lower()),
+                       sort=lambda r: r.extracted_code.lower(),
+                       editable=True,                     # ← 新增：列开关
+                       on_edit=self._on_code_edited),     # ← 新增：回调
                 Column("status", "状态", 120,
                        display=_status_text, sort=_status_rank),
                 Column("size", "大小", 100,
@@ -107,8 +116,10 @@ class ScanTab(ttk.Frame):
                        sort=lambda r: r.file_size),
             ],
             searchable=True,          # ← 新增
+            editable=True,                            # ← 新增：总开关
             row_tags=_tag,
             tag_configure={
+                "edited":    {"foreground": "#c77b00"},   # ← 新增
                 "extracted": {"foreground": "#1a7f37"},
                 "original":  {"foreground": "#999999"},
                 "inherited": {"foreground": "#0a58ca"},
@@ -207,6 +218,7 @@ class ScanTab(ttk.Frame):
                     self._scanned_count += 1
                     self._update_progress()
                 elif kind == "json":
+                    self._current_json_path = Path(payload)   # ← 新增
                     self.app.move_tab.set_input_json(payload)
                     self._append_log(f"[提示] 结果已同步到移动页：{payload}")
                 elif kind == "log_error":
@@ -259,6 +271,31 @@ class ScanTab(ttk.Frame):
         parts.append(f"总成功率 {ratio:.1f}%")
         self.stats_var.set("，".join(parts))
         self.app.set_status("扫描完成")
+
+    # ---------- 单元格编辑 ----------
+    def _on_code_edited(self, r: ScrapeResult, new_value: str) -> bool:
+        """用户在扫描页手动修正提取码。返回 True 表示接受。"""
+        if not new_value:
+            return False
+
+        old = r.extracted_code
+        r.extracted_code = new_value        
+        r.status = "extracted"              # 用户主动纠正，认为结果有效
+        r.manually_edited = True            # ← 新增
+
+        self._append_log(f"[修正] {r.filename}：{old} → {new_value}")
+        self._save_corrected_results()
+        return True
+
+    def _save_corrected_results(self) -> None:
+        """把修正写回本次扫描生成的 JSON，供移动页重新加载。"""
+        path = self._current_json_path
+        if path is None:
+            return
+        try:
+            save_json(self._results, path)
+        except Exception as e:
+            self._append_log(f"[错误] 保存修正结果失败：{e}")
 
     # ---------- 日志 ----------
     def _append_log(self, msg: str) -> None:

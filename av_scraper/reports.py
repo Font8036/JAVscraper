@@ -26,6 +26,7 @@ def _to_dict(r: ScrapeResult) -> dict:
         "status": r.status,
         "file_size": r.file_size,
         "inherited": r.inherited,
+        "manually_edited": r.manually_edited,   # ← 新增
     }
 
 

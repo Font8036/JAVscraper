@@ -18,6 +18,7 @@ import re
 import tkinter as tk
 from dataclasses import dataclass
 from tkinter import ttk
+from tkinter import font as tkfont
 from typing import Any, Callable, Literal, Optional
 
 _AnchorT = Literal["nw", "n", "ne", "w", "center", "e", "sw", "s", "se"]
@@ -43,7 +44,9 @@ class Column:
     sortable: bool = True
     searchable: bool = True
     kind: str = "text"        # "text" / "checkbox"
-
+    # ---- 新增 ----
+    editable: bool = False
+    on_edit: Optional[Callable[[Any, str], bool]] = None
 
 class SortableTreeview(ttk.Frame):
     def __init__(
@@ -56,6 +59,7 @@ class SortableTreeview(ttk.Frame):
         tag_configure: Optional[dict[str, dict]] = None,
         height: int = 16,
         searchable: bool = False,
+        editable: bool = False,      # ← 新增：组件级总开关
         filter_func: Optional[Callable[[Any, str], bool]] = None,
         on_sort_changed: Optional[Callable[[Optional[str], str], None]] = None,
         on_selection_changed: Optional[Callable[[], None]] = None,
@@ -69,6 +73,7 @@ class SortableTreeview(ttk.Frame):
         self._key = key or (lambda d: str(id(d)))
         self._custom_filter_func = filter_func
         self._height = height
+        self._editable = editable
 
         # 数据
         self._original_data: list[Any] = []
@@ -86,6 +91,12 @@ class SortableTreeview(ttk.Frame):
         self._filter_var: Optional[tk.StringVar] = None
         self._regex_var: Optional[tk.BooleanVar] = None
         self._match_label_var: Optional[tk.StringVar] = None
+
+        # 编辑态（任意时刻至多一个编辑框）
+        self._edit_entry: Optional[ttk.Entry] = None
+        self._edit_var: Optional[tk.StringVar] = None
+        self._edit_iid: Optional[str] = None
+        self._edit_key: Optional[str] = None
 
         # 勾选状态
         self._checkbox_key: Optional[str] = next(
@@ -185,11 +196,33 @@ class SortableTreeview(ttk.Frame):
         if self._checkbox_key is not None:
             self.tree.bind("<Button-1>", self._on_tree_click, add="+")
             self._update_headers()
+        self._apply_row_height()      # ← 新增
+        if self._editable:
+            self.tree.bind("<Double-1>", self._on_double_click, add="+")
+
+    def _apply_row_height(self) -> None:
+        """让内容行高跟随当前字体。
+
+        ttk.Treeview 的 rowheight 只在主题初始化时按当时字体定一次，
+        之后 tk scaling 变大、字体变大，内容行不会自动变高，字会被截断。
+        表头高度由布局自动算，不受影响，所以只需要管内容行。
+
+        注意：style 是全局的，这里会同时影响所有 Treeview。
+        本项目所有表格都经由本组件创建，统一行高正是预期行为。
+        """
+        style = ttk.Style(self)
+        try:
+            font_name = style.lookup("Treeview", "font") or "TkDefaultFont"
+            linespace = tkfont.Font(font=font_name).metrics("linespace")
+        except Exception:
+            return
+        style.configure("Treeview", rowheight=linespace + 6)
 
     # ============================================================
     # 数据操作
     # ============================================================
     def clear(self) -> None:
+        self._cancel_edit()      # ← 新增
         self._original_data.clear()
         self._visible_data.clear()
         self._data_by_iid.clear()
@@ -211,6 +244,7 @@ class SortableTreeview(ttk.Frame):
         self._notify_selection()
 
     def set_data(self, rows: list[Any], *, select_all: bool = True) -> None:
+        self._cancel_edit()      # ← 新增
         self._original_data = list(rows)
         if self._checkbox_key is not None:
             if select_all:
@@ -378,7 +412,7 @@ class SortableTreeview(ttk.Frame):
 
     def _refresh_display(self, iid: str) -> None:
         data = self._data_by_iid.get(iid)
-        if data is None:
+        if data is None or not self.tree.exists(iid):
             return
         values = tuple(self._render_cell(c, data) for c in self._columns)
         tags = self._compose_tags(data)
@@ -506,6 +540,103 @@ class SortableTreeview(ttk.Frame):
         return _SYM_PARTIAL
 
     # ============================================================
+    # 单元格编辑
+    # ============================================================
+    def _on_double_click(self, event) -> Optional[str]:
+        if not self._editable:
+            return None
+        if self.tree.identify_region(event.x, event.y) != "cell":
+            return None
+        iid = self.tree.identify_row(event.y)
+        col_id = self.tree.identify_column(event.x)
+        if not iid or not col_id:
+            return None
+        try:
+            idx = int(col_id[1:]) - 1
+        except ValueError:
+            return None
+        cols = list(self.tree["columns"])
+        if idx < 0 or idx >= len(cols):
+            return None
+        key = cols[idx]
+        col = self._columns_by_key.get(key)
+        if col is None or not col.editable or col.on_edit is None:
+            return None
+        self._start_edit(iid, key)
+        return "break"
+
+    def _start_edit(self, iid: str, key: str) -> None:
+        # 若已在编辑别的格子，先提交
+        self._commit_edit()
+
+        data = self._data_by_iid.get(iid)
+        col = self._columns_by_key.get(key)
+        if data is None or col is None:
+            return
+        bbox = self.tree.bbox(iid, key)
+        if not bbox:
+            return
+        x, y, w, h = bbox
+
+        current = self._render_cell(col, data)
+        var = tk.StringVar(value=current)
+        entry = ttk.Entry(self.tree, textvariable=var)
+        entry.place(x=x, y=y, width=w, height=h)
+
+        self._edit_entry = entry
+        self._edit_var = var
+        self._edit_iid = iid
+        self._edit_key = key
+
+        entry.bind("<Return>", lambda _e: self._commit_edit())
+        entry.bind("<Escape>", lambda _e: self._cancel_edit())
+        entry.bind("<FocusOut>", lambda _e: self._commit_edit())
+
+        entry.focus_set()
+        entry.after_idle(lambda: entry.select_range(0, "end"))
+
+    def _commit_edit(self) -> None:
+        entry = self._edit_entry
+        if entry is None:
+            return
+        iid, key, var = self._edit_iid, self._edit_key, self._edit_var
+        # 先清引用，避免 destroy 触发 FocusOut 时重入
+        self._edit_entry = self._edit_var = None
+        self._edit_iid = self._edit_key = None
+        try:
+            entry.destroy()
+        except Exception:
+            pass
+
+        if var is None or iid is None or key is None:
+            return
+        new_value = var.get().strip()
+
+        col = self._columns_by_key.get(key)
+        data = self._data_by_iid.get(iid)
+        if col is None or data is None or col.on_edit is None:
+            return
+        if new_value == self._render_cell(col, data):
+            return
+        try:
+            accepted = bool(col.on_edit(data, new_value))
+        except Exception:
+            accepted = False
+        if accepted:
+            self._refresh_display(iid)
+
+    def _cancel_edit(self) -> None:
+        entry = self._edit_entry
+        if entry is None:
+            return
+        self._edit_entry = self._edit_var = None
+        self._edit_iid = self._edit_key = None
+        try:
+            entry.destroy()
+        except Exception:
+            pass
+
+    # ============================================================
     # 搜索
     # ============================================================
     def _on_search_changed(self, *_args) -> None:
@@ -577,6 +708,7 @@ class SortableTreeview(ttk.Frame):
     # 渲染
     # ============================================================
     def _redraw(self) -> None:
+        self._cancel_edit()      # ← 新增
         self.tree.delete(*self.tree.get_children())
         self._data_by_iid.clear()
         for data in self._visible_data:

@@ -9,7 +9,7 @@ import urllib.request
 import webbrowser
 from pathlib import Path
 from tkinter import messagebox, ttk
-from .common import set_window_icon
+from .common import set_window_icon, center_and_show
 from .. import __version__
 
 _GITHUB_REPO = "Font8036/JAVscraper"
@@ -103,7 +103,7 @@ def show_about(parent, plugins=None):
     frame.pack(fill="both", expand=True)
 
     # ---------- 顶部大图标（居中）----------
-    icon_img = _load_about_icon(96)
+    icon_img = _load_about_icon(256)
     if icon_img is not None:
         icon_label = ttk.Label(frame, image=icon_img)
         setattr(icon_label, "image", icon_img)   # 保持引用，防止被 GC 回收
@@ -199,13 +199,6 @@ def show_about(parent, plugins=None):
 
     check_btn.configure(command=on_check)
 
-    # ---------- 居中 + 显示 ----------
-    win.update_idletasks()
-    width = win.winfo_width()
-    height = win.winfo_height()
-    x = parent.winfo_rootx() + (parent.winfo_width() - width) // 2
-    y = parent.winfo_rooty() + (parent.winfo_height() - height) // 2
-    win.geometry(f"+{max(0, x)}+{max(0, y)}")
-
-    win.deiconify()      # 布局完成，显示窗口
+    # ---------- 显示 + 居中 ----------
+    center_and_show(win, parent)
     return win

@@ -12,7 +12,7 @@ import tkinter as tk
 from dataclasses import dataclass
 from tkinter import messagebox, ttk
 from typing import Any, Callable
-from .common import set_window_icon
+from .common import set_window_icon, scale_size, center_and_show
 
 @dataclass
 class ConfigPage:
@@ -33,31 +33,33 @@ class ConfigPage:
 
 
 class ConfigWindow(tk.Toplevel):
-    def __init__(self, parent: tk.Misc, pages: list[ConfigPage]):
+    def __init__(self, parent, pages):
         super().__init__(parent)
-        # 关键：先隐藏窗口，布局全部完成后再显示，避免左上角闪现
         self.withdraw()
         self.title("配置")
-        set_window_icon(self)      # ← 加这一行
-        self.geometry("860x640")
-        self.minsize(660, 480)
+        set_window_icon(self)
+
+        # ---- 从父窗口拿用户缩放系数 ----
+        user_scale = 1.0
+        try:
+            app = parent
+            if hasattr(app, "app_config"):
+                user_scale = max(0.5, min(3.0, app.app_config.ui_scale / 100.0))
+        except Exception:
+            pass
+
+        # ---- 按 DPI × user_scale 计算窗口尺寸 ----
+        w, h = scale_size(self, user_scale, 860, 640)
+        self.geometry(f"{w}x{h}")
+        mw, mh = scale_size(self, user_scale, 660, 480)
+        self.minsize(mw, mh)
 
         self._pages: dict[str, ConfigPage] = {}
         self._build(pages)
         self._load_all()
 
-        # 计算居中位置
-        self.update_idletasks()
-        width = self.winfo_width()
-        height = self.winfo_height()
-        x = parent.winfo_rootx() + (parent.winfo_width() - width) // 2
-        y = parent.winfo_rooty() + (parent.winfo_height() - height) // 2
-
-        # 用完整 geometry（尺寸 + 位置）一次性设置
-        self.geometry(f"{width}x{height}+{max(0, x)}+{max(0, y)}")
-
-        # 显示窗口
-        self.deiconify()
+        # 关键：在 withdraw 状态下完成布局与居中，最后一次性显示
+        center_and_show(self, parent, width=w, height=h)
 
         self.protocol("WM_DELETE_WINDOW", self._on_cancel)
 

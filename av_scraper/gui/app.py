@@ -9,7 +9,7 @@ from pathlib import Path
 from tkinter import ttk
 from dataclasses import replace
 from typing import Optional, cast
-from .common import set_window_icon
+from .common import apply_ui_scaling, scale_size, set_window_icon
 from ..config import AppConfig, ProcessorConfig, ScraperConfig
 from ..paths import log_dir
 from ..plugin_api import PluginContext
@@ -27,6 +27,8 @@ class App(tk.Tk):
 
     def __init__(self, config_path: Path):
         super().__init__()
+        # 关键：立即隐藏窗口，等布局全部完成后再显示
+        self.withdraw()
         self.title("JAVscraper")
         self.geometry("1180x820")
         self.minsize(960, 640)
@@ -39,33 +41,23 @@ class App(tk.Tk):
         self._about_window: Optional[tk.Toplevel] = None
         self._build()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
+        # 布局完成，显示窗口
+        self.deiconify()
 
     def _apply_ui_scaling(self) -> None:
-        """按 DPI × 用户缩放系数设置 tk scaling。
+        """按 DPI × 用户缩放系数设置界面缩放与窗口大小。"""
+        user_scale = max(0.5, min(3.0, self.app_config.ui_scale / 100.0))
 
-        必须在 _build() 之前调用——否则已创建的控件不会重新渲染字体。
-        """
-        try:
-            # 声明 DPI 感知后（见 __main__），这里返回真实屏幕 DPI：
-            # - 100% 缩放 + 96 DPI 屏幕 → 96
-            # - 200% 缩放 + 192 DPI 屏幕 → 192
-            dpi = self.winfo_fpixels("1i")
+        # 1. 设置缩放
+        apply_ui_scaling(self, user_scale)
 
-            # 用户配置的百分比，落到合理区间
-            user_scale = max(0.5, min(3.0, self.app_config.ui_scale / 100.0))
+        # 2. 窗口大小等比放大
+        w, h = scale_size(self, user_scale, 1180, 820)
+        self.geometry(f"{w}x{h}")
 
-            # tk scaling 单位是"像素/点"：
-            # - 72 DPI = 1.0
-            # - 96 DPI = 1.333
-            # 再乘用户系数
-            self.tk.call("tk", "scaling", dpi / 72.0 * user_scale)
-            # 窗口也等比放大
-            w = int(1180 * user_scale)
-            h = int(820 * user_scale)
-            self.geometry(f"{w}x{h}")
-
-        except Exception:
-            logger.debug("设置界面缩放失败，使用默认值", exc_info=True)
+        # 3. 最小尺寸也放大
+        mw, mh = scale_size(self, user_scale, 960, 640)
+        self.minsize(mw, mh)
 
     def _set_window_icon(self) -> None:
         try:

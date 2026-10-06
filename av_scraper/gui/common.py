@@ -48,3 +48,59 @@ def set_window_icon(window: tk.Tk | tk.Toplevel) -> None:
             window.iconbitmap(str(icon))
     except Exception:
         pass
+
+def compute_ui_scale(window: tk.Misc, base_scale: float) -> float:
+    """计算实际的 tk scaling 值 = 屏幕 DPI / 72 × 用户缩放系数。
+
+    在声明过 DPI 感知的进程里，winfo_fpixels("1i") 返回真实物理 DPI：
+    - 100% 系统缩放 + 96 DPI  → 96
+    - 200% 系统缩放 + 192 DPI → 192
+    """
+    try:
+        dpi = window.winfo_fpixels("1i")
+    except Exception:
+        dpi = 96.0
+    return dpi / 72.0 * base_scale
+
+
+def apply_ui_scaling(window: tk.Misc, base_scale: float) -> None:
+    """设置窗口的 tk scaling。base_scale=1.0 表示 100%。"""
+    try:
+        window.tk.call("tk", "scaling", compute_ui_scale(window, base_scale))
+    except Exception:
+        pass
+
+
+def scale_size(window: tk.Misc, base_scale: float,
+               w: int, h: int) -> tuple[int, int]:
+    """按 DPI × 用户缩放系数换算窗口尺寸。"""
+    try:
+        dpi = window.winfo_fpixels("1i")
+    except Exception:
+        dpi = 96.0
+    factor = dpi / 96.0 * base_scale
+    return int(w * factor), int(h * factor)
+
+def center_and_show(
+    window: tk.Tk | tk.Toplevel,
+    parent: tk.Misc,
+    *,
+    width: int | None = None,
+    height: int | None = None,
+) -> None:
+    """在 withdraw 状态下完成布局与居中，然后一次性显示。
+
+    - width/height 显式指定时用指定值；未指定则用内容请求尺寸（reqwidth）。
+    - 先 update_idletasks 让 tkinter 计算布局，之后才设置 geometry。
+    - 最后才 deiconify —— 用户看到的第一帧就是最终位置，无闪现。
+    """
+    try:
+        window.update_idletasks()
+        w = width if width is not None else window.winfo_reqwidth()
+        h = height if height is not None else window.winfo_reqheight()
+        x = parent.winfo_rootx() + (parent.winfo_width() - w) // 2
+        y = parent.winfo_rooty() + (parent.winfo_height() - h) // 2
+        window.geometry(f"{w}x{h}+{max(0, x)}+{max(0, y)}")
+    except Exception:
+        pass
+    window.deiconify()

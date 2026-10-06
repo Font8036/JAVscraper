@@ -81,6 +81,22 @@ def scale_size(window: tk.Misc, base_scale: float,
     factor = dpi / 96.0 * base_scale
     return int(w * factor), int(h * factor)
 
+def centered_geometry(window: tk.Misc, w: int, h: int) -> str:
+    """返回把 w×h 的窗口居中到屏幕的 geometry 字符串。
+
+    屏幕尺寸和窗口尺寸单位一致（都按物理像素算），
+    因为进程已在 __main__.py 里声明过 DPI 感知。
+    窗口比屏幕大时退化为左上角对齐，不会算出负坐标。
+    """
+    try:
+        sw = window.winfo_screenwidth()
+        sh = window.winfo_screenheight()
+    except Exception:
+        return f"{w}x{h}"
+    x = max(0, (sw - w) // 2)
+    y = max(0, (sh - h) // 2)
+    return f"{w}x{h}+{x}+{y}"
+
 def center_and_show(
     window: tk.Tk | tk.Toplevel,
     parent: tk.Misc,

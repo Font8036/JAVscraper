@@ -9,7 +9,7 @@ from pathlib import Path
 from tkinter import ttk
 from dataclasses import replace
 from typing import Optional, cast
-from .common import apply_ui_scaling, scale_size, set_window_icon
+from .common import apply_ui_scaling, scale_size, set_window_icon, centered_geometry
 from ..config import AppConfig, ProcessorConfig, ScraperConfig
 from ..paths import log_dir
 from ..plugin_api import PluginContext
@@ -34,6 +34,7 @@ class App(tk.Tk):
         self.minsize(960, 640)
         set_window_icon(self)      # ← 就这一行
         self.config_path = config_path
+        self._first_run = not config_path.exists()   # ← 新增：必须在 load 之前
         self.app_config = AppConfig.load(config_path)
         # 关键：在构建任何控件之前设置缩放
         self._apply_ui_scaling()
@@ -43,6 +44,9 @@ class App(tk.Tk):
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         # 布局完成，显示窗口
         self.deiconify()
+        # 首次运行提示（等主窗口绘制完成再弹，保证定位正确）
+        if self._first_run:
+            self.after(100, self._show_welcome)
 
     def _apply_ui_scaling(self) -> None:
         """按 DPI × 用户缩放系数设置界面缩放与窗口大小。"""
@@ -53,7 +57,7 @@ class App(tk.Tk):
 
         # 2. 窗口大小等比放大
         w, h = scale_size(self, user_scale, 1180, 820)
-        self.geometry(f"{w}x{h}")
+        self.geometry(centered_geometry(self, w, h))
 
         # 3. 最小尺寸也放大
         mw, mh = scale_size(self, user_scale, 960, 640)
@@ -125,6 +129,18 @@ class App(tk.Tk):
 
         # 插件加载完毕，统一应用一次布局
         self._apply_layout_all()
+
+    def _show_welcome(self) -> None:
+        """首次运行（配置文件不存在）时的引导提示。"""
+        from tkinter import messagebox
+        messagebox.showinfo(
+            "欢迎使用 JAVscraper",
+            "检测到这是第一次运行。\n\n"
+            "请先点击右下角的「配置」按钮，设置扫描目录、输出目录、目标目录，\n"
+            "然后再回到「1-扫描」标签页开始使用。",
+            parent=self,
+        )
+        self.set_status("提示：首次使用请先点右下角「配置」按钮设置目录")
 
     def _show_about(self) -> None:
         '''显示关于对话框。'''

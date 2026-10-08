@@ -13,9 +13,15 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from typing import Any, Optional
 
+from av_scraper import fileio
 from av_scraper.gui.config_window import ConfigPage
 from av_scraper.scraper import CodeExtractor
-from av_scraper.widgets import Column, ConfigForm, SortableTreeview
+from av_scraper.widgets import (
+    Column,
+    ConfigForm,
+    SortableTreeview,
+    resolve_locked_target,
+)
 
 from ...shared.browser import BrowserSession
 from ...shared.notify import play_beep, show_toast
@@ -447,21 +453,27 @@ class SubtitleCatSource:
                 on_progress=progress,
             ))
 
-            # 生成 Excel
-            excel_ok = True
-            excel_error = ""
+            # 生成 Excel：先写临时文件（慢活留在后台线程），发布这一步若遇到
+            # "文件被占用"，交给主线程弹窗处置 —— 不需要重新爬一遍
+            target = Path(self._config.output_excel)
+            temp = fileio.temp_path_for(target)
+            saved_to: Optional[str] = ""
             try:
-                build_excel(records, self._config.output_excel,
-                            on_log=log)
-                log(f"已生成报告：{self._config.output_excel}")
+                build_excel(records, temp, on_log=log)
             except Exception as e:
-                excel_ok = False
-                excel_error = str(e)
                 log(f"[错误] 生成报告失败：{e}")
                 log(traceback.format_exc())
+                fileio.discard(temp)
+            else:
+                try:
+                    saved_to = str(fileio.publish(temp, target))
+                    log(f"已生成报告：{saved_to}")
+                except OSError as e:
+                    saved_to = None            # 待用户处置
+                    self._queue.put(("save_failed", (temp, target, e)))
 
             self._queue.put(
-                ("fetch_done", (len(records), excel_ok, excel_error)))
+                ("fetch_done", (len(records), saved_to)))
         except Exception as e:
             self._queue.put(("log", f"[错误] 爬取失败：{e}"))
             self._queue.put(("log", traceback.format_exc()))
@@ -488,6 +500,8 @@ class SubtitleCatSource:
                     self._update_row(*payload)
                 elif kind == "fetch_done":
                     self._finish_fetch(payload)
+                elif kind == "save_failed":
+                    self._resolve_save_failure(*payload)
         except queue.Empty:
             pass
         if self._root is not None:
@@ -530,7 +544,7 @@ class SubtitleCatSource:
                 parent=self._parent())
             return
 
-        count, excel_ok, excel_error = payload
+        count, saved_to = payload
         summary = f"共处理 {count} 条"
         if self._status_var:
             self._status_var.set(f"爬取完成，共 {count} 条")
@@ -541,20 +555,37 @@ class SubtitleCatSource:
         if self._config.notify_sound:
             play_beep()
 
-        if excel_ok:
+        if saved_to:
             messagebox.showinfo(
                 "完成",
-                f"{summary}\n\n报告已保存到：\n{self._config.output_excel}",
+                f"{summary}\n\n报告已保存到：\n{saved_to}",
                 parent=self._parent())
-        else:
+        elif saved_to == "":
             messagebox.showwarning(
                 "完成（报告生成失败）",
                 f"{summary}\n\n"
-                f"但报告保存失败：\n{excel_error}\n\n"
-                f"目标路径：\n{self._config.output_excel}\n\n"
-                "常见原因：该文件正被 WPS / Excel 打开。\n"
-                "请关闭文件后重新爬取，或改用其它文件名。",
+                f"但报告没能生成，详情见日志。\n\n"
+                f"目标路径：\n{self._config.output_excel}",
                 parent=self._parent())
+        else:
+            # None：目标被占用，处置弹窗已经问过用户了，这里只做收尾说明
+            messagebox.showinfo(
+                "完成",
+                f"{summary}\n\n报告没有保存到目标路径，"
+                "已生成的内容和位置见下方日志。",
+                parent=self._parent())
+
+    def _resolve_save_failure(self, temp: Path, target: Path, exc: OSError) -> None:
+        """主线程：报告目标被占用时按用户选择处置（重试只重做"发布"这一步）。"""
+        self._append_log(f"[提示] 无法写入 {target}：{exc}")
+        final = resolve_locked_target(self._parent(), temp, target)
+
+        if final is None:
+            self._append_log(f"[提示] 报告已生成在：{temp}")
+            self._append_log("[提示] 关掉占用它的程序后，把上面这个文件改名即可使用。")
+            return
+
+        self._append_log(f"[提示] 报告已保存到：{final}")
 
     # ---------- 日志 ----------
     def _append_log(self, msg: str) -> None:

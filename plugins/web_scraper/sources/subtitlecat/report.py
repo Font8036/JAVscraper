@@ -114,4 +114,5 @@ def build_excel(
     finally:
         workbook.close()
 
-    log(f"报告已保存到 {output_excel}")
+    # 路径由调用方在"发布"成功后写日志 —— 这里拿到的可能只是临时文件路径
+    log("数据处理完成")

@@ -13,6 +13,7 @@
   - [scraper.py](#scraperpy)
   - [processor.py](#processorpy)
   - [reports.py](#reportspy)
+  - [fileio.py](#fileiopy)
   - [config.py](#configpy)
   - [paths.py](#pathspy)
 - [Widgets 组件库](#widgets-组件库)
@@ -128,12 +129,14 @@ JAVscraper/
     ├── scraper.py                  # 文件名解析
     ├── processor.py                # 文件移动 / 撤回
     ├── reports.py                  # JSON / TXT / CSV 导出
+    ├── fileio.py                   # 写文件的公共处理（原子替换 / 占用识别）
     ├── plugin_api.py               # 插件接口定义（PluginContext）
     ├── plugin_loader.py            # 插件发现与加载
     ├── widgets/                    # 可复用 UI 组件
     │   ├── __init__.py
     │   ├── config_form.py          # ConfigForm / calc_label_width
     │   ├── history_path.py         # HistoryPathInput
+    │   ├── save_guard.py           # 保存失败（文件被占用）的三按钮处置窗
     │   ├── sortable_treeview.py    # SortableTreeview / Column
     │   └── tooltip.py              # ToolTip / QuestionMark / LabelWithTip
     └── gui/
@@ -314,6 +317,20 @@ class MoveOperation:
 | `extraction_table.csv` | 三列（文件名 / 提取码 / 来源）+ 统计信息 |
 
 ---
+
+### fileio.py
+
+写文件的公共处理（纯标准库、不依赖 Tk，核心与插件共用）：
+
+- `write_via_temp()`：先写同目录临时文件，再 `os.replace` 替换。写到一半崩了也不会留下半截文件 —— 配置保存、报告导出用它就够。
+- `temp_path_for()` + `publish()`：**拆开的两步**，给"用户可能开着看"的文件用（爬虫的 xlsx）。生成（慢，留在 worker 线程）与发布（毫秒级）分开之后，遇到文件被占用时**重试只需要重做发布**，不必重新爬一遍。
+- `classify_save_error()`：把失败归类成"被占用 / 磁盘满 / 其它"，好让上层用人话告诉用户；它会解包 xlsxwriter 包在 `args[0]` 里的 `FileCreateError`。
+- `timestamped_path()`：目标被占用时的备选名（原名 + 时间戳，重名再加 `_2`）。
+- `discard()`：尽力删临时文件，失败不抛错（worker 线程里清理失败不该让任务无声死掉）。
+
+配套界面在 `widgets/save_guard.py`：`resolve_locked_target()` 在主线程弹三按钮窗（重试 / 换文件名保存 / 另存为…），按用户选择重试**同一份已经生成好的临时文件**。它的 `ask` / `choose_path` / `timestamp` 都可注入，所以这套分支不开窗口也能单测（见 `test/test_save_guard.py`）。
+
+> ⚠️ Windows 事实（实测）：目标文件被 Excel / WPS 独占打开时，**`os.replace` 一样会失败**（WinError 5 / 32）。原子替换解决的是"别把旧文件写坏"，不是"绕过占用" —— 占用只能交给用户处置。
 
 ### config.py
 
@@ -948,6 +965,9 @@ python test/gen_test_files.py --clean
 - [ ] 预览重名提醒：一批里有两个同码同名的文件时，预览后应弹窗，且文案说明「覆盖」会丢文件
 - [ ] 撤回冲突：往原路径放一个同名文件后再撤回，应跳过该文件、日志给出原因、记录文件保留
 - [ ] 启动配置提示：把 `config.json` 里的 `existing_file_handling` 改成非法值后重启，应弹窗说明已被改回默认
+- [ ] 报告被占用：用 Excel 打开上次生成的 xlsx，再点「生成 Excel」→ 应弹三按钮窗；点「换文件名保存」应生成带时间戳的新文件
+- [ ] 占用后重试：保持 Excel 打开点「重试」应再次弹窗；关掉 Excel 再点「重试」应写回原路径
+- [ ] 关掉处置窗：直接关窗口 → 日志里应给出临时文件路径，已生成的内容不丢
 - [ ] 配置保存：改前缀 → 保存 → 重开 → 生效
 - [ ] 配置窗口：「应用」立即生效，不需要重启
 - [ ] 表格/日志高度：改完立即生效于所有 Tab
@@ -965,6 +985,9 @@ python -m pytest test/test_scraper.py -q   # 只跑番号提取
 - `test/test_processor.py`：目标路径规划与三种冲突处理、"跟随视频命名"、移动执行的统计与进度回调、移动记录的读写与撤回
 - `test/test_config.py`：配置读写、旧字段迁移、非法选项回退，以及"程序改过配置要报告出来"
 - `test/test_gui_text.py`：预览重名提醒与失败日志的文案（纯字符串函数，不建窗口）
+- `test/test_fileio.py`：临时文件写入、原子替换、错误分类、时间戳备选名
+- `test/test_save_guard.py`：占用处置状态机（重试 / 换名 / 另存为 / 关窗口），全部注入假弹窗
+- `test/conftest.py`：`locker` 夹具用 ctypes 的 `dwShareMode=0` 造**真实的文件占用**，`work_dir` 提供临时目录
 
 用例自带夹具、不依赖 `tmp_path`，所以在写入受限的环境里也能跑（那种环境可再加 `-p no:cacheprovider` 跳过 pytest 缓存）。
 
@@ -1028,6 +1051,7 @@ results = ext.scan_directory("D:/videos")
 - **Playwright 打包兼容性**。PyInstaller 打 Playwright 需要 `--collect-all`，不同版本之间略有差异，升级前先在测试目录试打。
 - **`plugin_loader` 依赖 `importlib.import_module` 检查依赖**，不读 `importlib.metadata`。这意味着无法做版本约束（如 `openpyxl>=3.1`），只能判断"有没有"。
 - **`web_scraper` 的启动慢是正常的**。它加载了 Playwright，首屏会慢 1~2 秒。这是完整版体积和功能换来的。
+- **文件被占用只能由用户处置**。Excel / WPS 开着报告时，写入和替换都会失败（Windows 共享模式决定的，`os.replace` 也不例外），程序只能弹窗让用户选择重试 / 换文件名 / 另存为。见 `fileio.py` 与 `widgets/save_guard.py`。
 
 ---
 

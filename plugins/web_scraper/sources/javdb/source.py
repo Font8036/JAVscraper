@@ -13,8 +13,14 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from typing import Any, Optional
 
+from av_scraper import fileio
 from av_scraper.gui.config_window import ConfigPage
-from av_scraper.widgets import Column, ConfigForm, SortableTreeview
+from av_scraper.widgets import (
+    Column,
+    ConfigForm,
+    SortableTreeview,
+    resolve_locked_target,
+)
 
 from ...shared.browser import BrowserSession
 from ...shared.notify import play_beep, show_toast
@@ -520,18 +526,34 @@ class JavdbSource:
     def _excel_worker(self) -> None:
         def log(msg: str) -> None:
             self._queue.put(("log", msg))
+
+        # 先写到临时文件（慢活留在后台线程），最后只把"发布"这一步交给主线程：
+        # 目标被占用时重试只需要重做发布，不必重新生成整张表
+        target = Path(self._config.output_excel)
+        temp = fileio.temp_path_for(target)
         try:
             build_excel(
                 self._config.output_csv,
-                self._config.output_excel,
+                temp,
                 self._config.cover_dir,
                 on_log=log,
             )
-            self._queue.put(("excel_done", True))
         except Exception as e:
             self._queue.put(("log", f"[错误] 生成 Excel 失败: {e}"))
             self._queue.put(("log", traceback.format_exc()))
-            self._queue.put(("excel_done", False))
+            fileio.discard(temp)
+            self._queue.put(("excel_done", None))
+            return
+
+        try:
+            final = fileio.publish(temp, target)
+        except OSError as e:
+            # 这里不能弹窗（在 worker 线程），交给主线程处置
+            self._queue.put(("save_failed", (temp, target, e)))
+            return
+
+        self._queue.put(("log", f"[提示] 报告已保存到：{final}"))
+        self._queue.put(("excel_done", str(final)))
 
     # ============================================================
     # 队列消费
@@ -548,6 +570,8 @@ class JavdbSource:
                     self._finish_fetch(payload)
                 elif kind == "excel_done":
                     self._finish_excel(payload)
+                elif kind == "save_failed":
+                    self._resolve_save_failure(*payload)
         except queue.Empty:
             pass
         if self._root is not None:
@@ -595,17 +619,38 @@ class JavdbSource:
         if self._config.notify_sound:
             play_beep()
 
-    def _finish_excel(self, ok: bool) -> None:
+    def _finish_excel(self, saved_to: Optional[str]) -> None:
+        """saved_to：报告实际保存到的路径；None 表示没保存成功。"""
         self._working = False
         if self._btn_fetch: self._btn_fetch.configure(state="normal")
         if self._btn_report: self._btn_report.configure(state="normal")
         if self._status_var:
-            self._status_var.set("就绪" if ok else "生成失败")
-        if ok:
+            self._status_var.set("就绪" if saved_to else "生成失败")
+        if saved_to:
             messagebox.showinfo(
                 "完成",
-                f"Excel 已生成：\n{self._config.output_excel}",
+                f"Excel 已生成：\n{saved_to}",
                 parent=self._parent())
+
+    def _resolve_save_failure(self, temp: Path, target: Path, exc: OSError) -> None:
+        """主线程：目标文件被占用（通常是用户还开着这张表），按用户选择处置。
+
+        注意这里重试的只是"把已经生成好的临时文件换过去"，不需要重新生成表格。
+        """
+        self._append_log(f"[提示] 无法写入 {target}：{exc}")
+        final = resolve_locked_target(self._parent(), temp, target)
+
+        if final is None:
+            # 用户关掉了处置窗口：内容不丢，留在临时文件里并告诉他路径
+            self._append_log(f"[提示] 报告已生成在：{temp}")
+            self._append_log("[提示] 关掉占用它的程序后，把上面这个文件改名即可使用。")
+            self._finish_excel(None)
+            if self._status_var:
+                self._status_var.set("报告未保存")
+            return
+
+        self._append_log(f"[提示] 报告已保存到：{final}")
+        self._finish_excel(str(final))
 
     # ---------- 日志 ----------
     def _append_log(self, msg: str) -> None:

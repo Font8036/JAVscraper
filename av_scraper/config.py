@@ -11,6 +11,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from .defaults import DEFAULT_ATTACHMENT_EXTENSIONS, DEFAULT_VIDEO_EXTENSIONS, DEFAULT_PREFIXES
+from .fileio import write_via_temp
 
 
 @dataclass
@@ -347,8 +348,6 @@ class AppConfig:
         return cls(**kwargs), notices
 
     def save(self, path: Path) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            json.dumps(asdict(self), ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        # 原子写：写到一半失败时，磁盘上还是原来那份可用配置
+        data = json.dumps(asdict(self), ensure_ascii=False, indent=2)
+        write_via_temp(path, lambda tmp: tmp.write_text(data, encoding="utf-8"))

@@ -7,6 +7,7 @@ import datetime
 import json
 from pathlib import Path
 
+from .fileio import write_via_temp
 from .scraper import ScrapeResult
 
 
@@ -31,11 +32,9 @@ def _to_dict(r: ScrapeResult) -> dict:
 
 
 def save_json(results: list[ScrapeResult], path: Path) -> None:
-    path.write_text(
-        json.dumps([_to_dict(r) for r in results],
-                   ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    # 先写临时文件再替换：写到一半崩了也不会留下半截 JSON
+    data = json.dumps([_to_dict(r) for r in results], ensure_ascii=False, indent=2)
+    write_via_temp(path, lambda tmp: tmp.write_text(data, encoding="utf-8"))
 
 
 def save_text_report(results: list[ScrapeResult], path: Path) -> None:
@@ -70,7 +69,8 @@ def save_text_report(results: list[ScrapeResult], path: Path) -> None:
             icon = "✗"
         lines.append(f"{icon} {r.filename} -> {r.extracted_code}")
 
-    path.write_text("\n".join(lines), encoding="utf-8")
+    text = "\n".join(lines)
+    write_via_temp(path, lambda tmp: tmp.write_text(text, encoding="utf-8"))
 
 
 def save_csv(results: list[ScrapeResult], path: Path) -> None:
@@ -83,17 +83,20 @@ def save_csv(results: list[ScrapeResult], path: Path) -> None:
     total = len(results)
     ratio = f"{(direct + inherited) / total * 100:.1f}%" if total else "0%"
 
-    with open(path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(["原始文件名", "提取出的信息", "来源"])
-        for r in extracted:
-            source = "父目录继承" if r.inherited else "文件名"
-            writer.writerow([r.filename, r.extracted_code, source])
-        writer.writerow([])
-        writer.writerow(["统计信息"])
-        writer.writerow(["总文件数", total])
-        writer.writerow(["直接提取", direct])
-        writer.writerow(["父目录继承", inherited])
-        writer.writerow(["总成功率", ratio])
-        writer.writerow(["生成时间",
-                         datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")])
+    def _write(tmp: Path) -> None:
+        with open(tmp, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(["原始文件名", "提取出的信息", "来源"])
+            for r in extracted:
+                source = "父目录继承" if r.inherited else "文件名"
+                writer.writerow([r.filename, r.extracted_code, source])
+            writer.writerow([])
+            writer.writerow(["统计信息"])
+            writer.writerow(["总文件数", total])
+            writer.writerow(["直接提取", direct])
+            writer.writerow(["父目录继承", inherited])
+            writer.writerow(["总成功率", ratio])
+            writer.writerow(["生成时间",
+                             datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")])
+
+    write_via_temp(path, _write)

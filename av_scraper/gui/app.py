@@ -35,7 +35,7 @@ class App(tk.Tk):
         set_window_icon(self)      # ← 就这一行
         self.config_path = config_path
         self._first_run = not config_path.exists()   # ← 新增：必须在 load 之前
-        self.app_config = AppConfig.load(config_path)
+        self.app_config, self._config_notices = AppConfig.load_with_notices(config_path)
         # 关键：在构建任何控件之前设置缩放
         self._apply_ui_scaling()
         self._config_window: Optional[tk.Toplevel] = None
@@ -47,6 +47,9 @@ class App(tk.Tk):
         # 首次运行提示（等主窗口绘制完成再弹，保证定位正确）
         if self._first_run:
             self.after(100, self._show_welcome)
+        elif self._config_notices:
+            # 配置被程序改过（字段迁移 / 非法值回退）时告知用户
+            self.after(100, self._show_config_notices)
 
     def _apply_ui_scaling(self) -> None:
         """按 DPI × 用户缩放系数设置界面缩放与窗口大小。"""
@@ -141,6 +144,19 @@ class App(tk.Tk):
             parent=self,
         )
         self.set_status("提示：首次使用请先点右下角「配置」按钮设置目录")
+
+    def _show_config_notices(self) -> None:
+        """启动时配置被程序改动过（迁移 / 非法值回退），逐条告知用户。"""
+        from tkinter import messagebox
+        messagebox.showwarning(
+            "配置已被调整",
+            "启动时发现 config.json 里有无法直接使用的项，已按下面的方式调整：\n\n"
+            + "\n".join(f"• {n}" for n in self._config_notices)
+            + "\n\n这些调整会在下次保存配置时写回文件；"
+              "如果你需要原来的值，请在「配置」窗口里改回来。",
+            parent=self,
+        )
+        self.set_status("提示：本次启动调整了配置，详见弹窗")
 
     def _show_about(self) -> None:
         '''显示关于对话框。'''

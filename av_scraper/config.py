@@ -212,6 +212,34 @@ def _migrate_scraper_config(data: dict) -> dict:
     new_data["attachment_extensions"] = attachments
     return new_data
 
+def _choice_notices(cls, data) -> list[str]:
+    """列出会被 _coerce_choices 改成默认值的项（供启动时提示用户）。"""
+    if not isinstance(data, dict):
+        return []
+    notices = []
+    for f in dataclasses.fields(cls):
+        if f.name not in data:
+            continue
+        choices = f.metadata.get("choices")
+        if not choices or data[f.name] in choices:
+            continue
+        label = f.metadata.get("label", f.name)
+        notices.append(
+            f"「{label}」的值「{data[f.name]}」不是有效选项，已改回默认「{f.default}」")
+    return notices
+
+
+def _migration_notices(raw_scraper) -> list[str]:
+    """旧版 supported_extensions 需要拆分时给一句提示。"""
+    if not isinstance(raw_scraper, dict):
+        return []
+    if "video_extensions" in raw_scraper or "attachment_extensions" in raw_scraper:
+        return []
+    if "supported_extensions" not in raw_scraper:
+        return []
+    return ["旧版的「支持扩展名」已拆分为「视频扩展名」与「附件扩展名」，请检查是否需要调整"]
+
+
 @dataclass
 class AppConfig:
     scraper: ScraperConfig = field(
@@ -268,18 +296,42 @@ class AppConfig:
     # ---------- 读写 ----------
     @classmethod
     def load(cls, path: Path) -> "AppConfig":
+        return cls.load_with_notices(path)[0]
+
+    @classmethod
+    def load_with_notices(cls, path: Path) -> "tuple[AppConfig, list[str]]":
+        """读配置，并返回「程序替你改过的地方」的说明，供 GUI 弹窗告知用户。
+
+        - 文件不存在：按默认值新建并落盘（首次运行有单独的欢迎提示，这里不重复提示）
+        - 读取 / 解析失败，或结构不对：用默认值启动，**原文件不动**，并说明原因
+        - 迁移旧字段、非法选项回退：逐条说明改了什么
+        """
         if not path.exists():
             cfg = cls()
             cfg.save(path)
-            return cfg
+            return cfg, []
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return cls()
-        
+        except (OSError, json.JSONDecodeError) as e:
+            return cls(), [
+                f"配置文件读取失败（{type(e).__name__}: {e}），本次按默认值启动；"
+                f"原文件未改动，下次保存配置时才会覆盖它"
+            ]
+        if not isinstance(data, dict):
+            return cls(), [
+                "配置文件的内容不是预期的对象结构，本次按默认值启动；"
+                "原文件未改动，下次保存配置时才会覆盖它"
+            ]
+
+        raw_scraper = data.get("scraper")
+        raw_processor = data.get("processor")
+        notices = _migration_notices(raw_scraper)
+        notices += _choice_notices(ScraperConfig, raw_scraper)
+        notices += _choice_notices(ProcessorConfig, raw_processor)
+
         scraper_data = _coerce_choices(
-            ScraperConfig, _migrate_scraper_config(data.get("scraper")))
-        processor_data = _coerce_choices(ProcessorConfig, data.get("processor"))
+            ScraperConfig, _migrate_scraper_config(raw_scraper))
+        processor_data = _coerce_choices(ProcessorConfig, raw_processor)
 
         kwargs = {
             "scraper": ScraperConfig(**_filter_fields(ScraperConfig, scraper_data)),
@@ -292,7 +344,7 @@ class AppConfig:
             if f.name in data:
                 kwargs[f.name] = data[f.name]
 
-        return cls(**kwargs)
+        return cls(**kwargs), notices
 
     def save(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)

@@ -115,7 +115,9 @@ JAVscraper/
 ├── test/                           # 测试与生成脚本
 │   ├── gen_test_files.py           # 造一批测试文件，用来验证扫描
 │   ├── test_scraper.py             # 番号提取 / 扫描的单元测试（pytest）
-│   └── test_processor.py           # 移动 / 撤回的单元测试（pytest）
+│   ├── test_processor.py           # 移动 / 撤回的单元测试（pytest）
+│   ├── test_config.py              # 配置读写与"改了要提示"的单元测试
+│   └── test_gui_text.py            # GUI 文案函数（提醒 / 日志）的单元测试
 │
 └── av_scraper/                     # 主包
     ├── __init__.py                 # __version__
@@ -943,6 +945,9 @@ python test/gen_test_files.py --clean
 - [ ] 移动预览：绿色 / 灰色 / 红色分类正确
 - [ ] 移动执行：冲突策略 `skip` / `overwrite` / `rename` 行为符合预期
 - [ ] 撤回：移动后能完整还原
+- [ ] 预览重名提醒：一批里有两个同码同名的文件时，预览后应弹窗，且文案说明「覆盖」会丢文件
+- [ ] 撤回冲突：往原路径放一个同名文件后再撤回，应跳过该文件、日志给出原因、记录文件保留
+- [ ] 启动配置提示：把 `config.json` 里的 `existing_file_handling` 改成非法值后重启，应弹窗说明已被改回默认
 - [ ] 配置保存：改前缀 → 保存 → 重开 → 生效
 - [ ] 配置窗口：「应用」立即生效，不需要重启
 - [ ] 表格/日志高度：改完立即生效于所有 Tab
@@ -958,6 +963,8 @@ python -m pytest test/test_scraper.py -q   # 只跑番号提取
 
 - `test/test_scraper.py`：`CodeExtractor` 的提取规则与边界、文件分类、`scan_directory`
 - `test/test_processor.py`：目标路径规划与三种冲突处理、"跟随视频命名"、移动执行的统计与进度回调、移动记录的读写与撤回
+- `test/test_config.py`：配置读写、旧字段迁移、非法选项回退，以及"程序改过配置要报告出来"
+- `test/test_gui_text.py`：预览重名提醒与失败日志的文案（纯字符串函数，不建窗口）
 
 用例自带夹具、不依赖 `tmp_path`，所以在写入受限的环境里也能跑（那种环境可再加 `-p no:cacheprovider` 跳过 pytest 缓存）。
 

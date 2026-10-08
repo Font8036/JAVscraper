@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import shutil
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Callable, Optional
@@ -29,6 +30,22 @@ class MoveOperation:
     original_filename: str
     target_filename: str
     extracted_code: str
+
+
+def find_target_collisions(
+    planned: Iterable[PlannedOperation],
+) -> dict[str, list[PlannedOperation]]:
+    """找出本批内会写到同一个目标路径的操作（"批内重名"）。
+
+    冲突处理为「覆盖」时，先移入的文件会被后一个覆盖删除，所以预览阶段要提醒用户。
+    skip 不写盘，不计入。返回 {目标路径: 涉及的操作}，只包含有冲突的分组。
+    """
+    groups: dict[str, list[PlannedOperation]] = {}
+    for p in planned:
+        if p.status == "skip":
+            continue
+        groups.setdefault(str(p.dst), []).append(p)
+    return {dst: ops for dst, ops in groups.items() if len(ops) > 1}
 
 
 class FileProcessor:
@@ -272,6 +289,14 @@ class FileProcessor:
                 failed += 1
                 if progress:
                     progress(op, "missing")
+                continue
+
+            if dst.exists():
+                # 原路径又被占用（重新下载、手动放回等）：不覆盖任何东西，
+                # 计入失败并保留记录，由用户自己决定怎么处理
+                failed += 1
+                if progress:
+                    progress(op, "occupied")
                 continue
 
             try:

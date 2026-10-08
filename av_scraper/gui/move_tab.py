@@ -12,12 +12,73 @@ from tkinter import filedialog, messagebox, ttk
 from typing import Any, Optional
 
 from ..paths import log_dir
-from ..processor import FileProcessor, PlannedOperation
+from ..processor import (
+    FileProcessor,
+    MoveOperation,
+    PlannedOperation,
+    find_target_collisions,
+)
 from .common import QueueLogHandler
 from ..widgets import HistoryPathInput, Column, SortableTreeview
 
 _OPS_FILENAME = "move_operations.json"
 _LABEL_WIDTH = 10          # 左列标签的统一宽度，和配置页风格一致
+
+
+def _short(path: Path) -> str:
+    """文件在弹窗/日志里的短标识：上级目录名/文件名，便于区分同名文件。"""
+    return f"{path.parent.name}/{path.name}" if path.parent.name else path.name
+
+
+def build_collision_message(collisions: dict[str, list[PlannedOperation]]) -> str:
+    """预览阶段"批内重名"提醒的文案。"""
+    groups = list(collisions.items())
+    shown, rest = groups[:5], groups[5:]
+    lines = [
+        f"目标：{Path(dst).name}\n   来自：" + "、".join(_short(p.src) for p in ops)
+        for dst, ops in shown
+    ]
+    if rest:
+        lines.append(f"……另有 {len(rest)} 处冲突未列出")
+
+    files = sum(len(ops) for ops in collisions.values())
+    return (
+        f"检测到本批有 {files} 个文件会写到同样的目标路径（共 {len(groups)} 处）：\n\n"
+        + "\n".join(lines)
+        + "\n\n如果「配置 → 文件冲突处理」当前是「覆盖」，"
+          "先移入的那个文件会被后一个覆盖删除，且无法找回。\n"
+          "建议：把冲突处理改成「重命名」，或者只勾选其中一个文件再执行。"
+    )
+
+
+_MOVE_SKIP_TEXT = {
+    "skip": "跳过（目标已存在）",
+    "missing": "跳过（源文件不存在）",
+}
+
+
+def move_status_text(op: PlannedOperation, status: str) -> str:
+    """移动过程中值得写进日志的一行；正常完成返回空串。"""
+    if status == "ok":
+        return ""
+    if status.startswith("error:"):
+        return f"[失败] {op.src.name} → {op.dst}：{status[len('error:'):]}"
+    return f"[{_MOVE_SKIP_TEXT.get(status, status)}] {op.src.name}"
+
+
+def undo_status_text(op: MoveOperation, status: str) -> str:
+    """撤回过程中值得写进日志的一行；正常完成返回空串。"""
+    if status == "ok":
+        return ""
+    if status == "missing":
+        return f"[失败] {op.original_filename}：目标位置已找不到该文件，无法撤回"
+    if status == "occupied":
+        return (f"[失败] {op.original_filename}：原路径已有同名文件，"
+                f"已跳过以免覆盖（{op.original_path}）")
+    if status.startswith("error:"):
+        return f"[失败] {op.original_filename}：{status[len('error:'):]}"
+    return f"[失败] {op.original_filename}：{status}"
+
 
 class MoveTab(ttk.Frame):
     def __init__(self, master, app):
@@ -286,8 +347,14 @@ class MoveTab(ttk.Frame):
                 self._q.put(("log", f"[错误] 找不到记录文件：{ops_file}"))
                 self._q.put(("undo_done", None))
                 return
-            proc = self._make_processor() 
-            success, failed = proc.undo(ops_file)
+            proc = self._make_processor()
+
+            def on_progress(op, status):
+                text = undo_status_text(op, status)
+                if text:
+                    self._q.put(("log", text))
+
+            success, failed = proc.undo(ops_file, progress=on_progress)
             self._q.put(("undo_done", (success, failed)))
         except Exception:
             logging.getLogger("av_scraper.processor").exception("撤回失败")
@@ -327,6 +394,9 @@ class MoveTab(ttk.Frame):
     def _on_move_progress(self, payload) -> None:
         idx, total, op, status = payload
         self.stats_var.set(f"执行中 {idx}/{total}")
+        text = move_status_text(op, status)
+        if text:
+            self._append_log(text)
 
     def _on_selection_changed(self) -> None:
         total = len(self._planned)
@@ -346,6 +416,19 @@ class MoveTab(ttk.Frame):
         # 用统一格式（set_data 里触发 on_selection_changed 时也走同一个回调）
         self._on_selection_changed()
         self.app.set_status("预览完成")
+        self._warn_target_collisions(planned)
+
+    def _warn_target_collisions(self, planned: list[PlannedOperation]) -> None:
+        """预览后提醒：本批有文件会写到同一个目标路径（"覆盖"时会丢文件）。"""
+        collisions = find_target_collisions(planned)
+        if not collisions:
+            return
+        self._append_log(f"[提醒] 本批有 {len(collisions)} 处目标路径冲突，详见弹窗")
+        messagebox.showwarning(
+            "注意：本批有文件会互相覆盖",
+            build_collision_message(collisions),
+            parent=self,
+        )
 
     def _finish_move(self, payload: Optional[tuple[int, int, int]]) -> None:
         self._working = False
@@ -358,10 +441,14 @@ class MoveTab(ttk.Frame):
             self.target_input.commit()
         msg = f"成功 {success}，跳过 {skipped}，失败 {failed}"
         self.stats_var.set(msg)          # ← 新增：把进度覆盖为最终统计
-        messagebox.showinfo(
-            "移动完成",
-            msg,
-        )
+        if failed > 0:
+            messagebox.showwarning(
+                "移动完成（有失败）",
+                msg + "\n\n失败或跳过的原因见下方日志。",
+                parent=self,
+            )
+        else:
+            messagebox.showinfo("移动完成", msg, parent=self)
 
     def _finish_undo(self, payload: Optional[tuple[int, int]]) -> None:
         self._working = False
@@ -372,7 +459,15 @@ class MoveTab(ttk.Frame):
         success, failed = payload
         msg = f"成功 {success}，失败 {failed}"
         self.stats_var.set(msg)          # ← 新增
-        messagebox.showinfo("撤回完成", msg)
+        if failed > 0:
+            messagebox.showwarning(
+                "撤回完成（有失败）",
+                msg + "\n\n失败原因见下方日志。\n"
+                      "移动记录已保留，处理完冲突后可以再点一次「撤回移动」。",
+                parent=self,
+            )
+        else:
+            messagebox.showinfo("撤回完成", msg, parent=self)
 
     # ---------- 日志 ----------
     def _append_log(self, msg: str) -> None:

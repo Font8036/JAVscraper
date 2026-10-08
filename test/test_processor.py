@@ -21,7 +21,12 @@ from pathlib import Path
 import pytest
 
 from av_scraper.config import ProcessorConfig
-from av_scraper.processor import FileProcessor, MoveOperation, PlannedOperation
+from av_scraper.processor import (
+    FileProcessor,
+    MoveOperation,
+    PlannedOperation,
+    find_target_collisions,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -213,11 +218,11 @@ def test_plan_duplicate_targets_in_batch_skipped(dirs):
     assert [p.status for p in planned] == ["move", "skip"]
 
 
-def test_plan_duplicate_targets_in_batch_overwrite_is_lossy(dirs):
-    """现状记录（有数据丢失风险，见提交说明）：
+def test_plan_duplicate_targets_in_batch_overwrite_replaces_first(dirs):
+    """批内重名 +「覆盖」时后一个顶掉前一个是刻意行为（就是覆盖语义）。
 
-    一批里目标重名 + 冲突处理选"覆盖"时，两个文件都指向同一个目标；
-    execute 先移入第一个，再删掉它换第二个 —— 第一个文件就此消失。
+    这个后果不可撤销，所以 GUI 在预览阶段用 find_target_collisions 弹窗提醒用户
+    （文案用例见 test_gui_text.py）。
     """
     src, dst, _ = dirs
     a = make_file(src / "a" / "ABP-123.mp4", "first")
@@ -230,6 +235,67 @@ def test_plan_duplicate_targets_in_batch_overwrite_is_lossy(dirs):
     assert (success, skipped, failed) == (2, 0, 0)
     assert (dst / "ABP-123" / "ABP-123.mp4").read_text(encoding="utf-8") == "second"
     assert len(list((dst / "ABP-123").iterdir())) == 1     # 第一个文件确实没了
+
+
+# ---------------------------------------------------------------------------
+# 3b. find_target_collisions：预览弹窗用来检测"批内重名"
+# ---------------------------------------------------------------------------
+def test_find_collisions_detects_overwrite_group(dirs):
+    src, dst, _ = dirs
+    a = make_file(src / "a" / "ABP-123.mp4")
+    b = make_file(src / "b" / "ABP-123.mp4")
+    proc = make_processor(dst, existing_file_handling="覆盖")
+    planned = proc.plan([result(a, "ABP-123"), result(b, "ABP-123")])
+
+    target = str(dst / "ABP-123" / "ABP-123.mp4")
+    collisions = find_target_collisions(planned)
+
+    assert list(collisions) == [target]
+    assert [p.src for p in collisions[target]] == [a, b]
+
+
+def test_find_collisions_empty_when_renamed(dirs):
+    """「重命名」会把第二个改成 _01，目标路径不同 → 不算冲突。"""
+    src, dst, _ = dirs
+    a = make_file(src / "a" / "ABP-123.mp4")
+    b = make_file(src / "b" / "ABP-123.mp4")
+    proc = make_processor(dst)                              # 默认「重命名」
+    planned = proc.plan([result(a, "ABP-123"), result(b, "ABP-123")])
+    assert find_target_collisions(planned) == {}
+
+
+def test_find_collisions_ignores_skipped(dirs):
+    """「跳过」不写盘，不算冲突。"""
+    src, dst, _ = dirs
+    a = make_file(src / "a" / "ABP-123.mp4")
+    b = make_file(src / "b" / "ABP-123.mp4")
+    proc = make_processor(dst, existing_file_handling="跳过")
+    planned = proc.plan([result(a, "ABP-123"), result(b, "ABP-123")])
+    assert find_target_collisions(planned) == {}
+
+
+def test_find_collisions_empty_for_normal_batch(dirs):
+    src, dst, _ = dirs
+    a = make_file(src / "ABP-123.mp4")
+    b = make_file(src / "SSIS-456.mp4")
+    proc = make_processor(dst)
+    planned = proc.plan([result(a, "ABP-123"), result(b, "SSIS-456")])
+    assert find_target_collisions(planned) == {}
+
+
+def test_find_collisions_with_follow_video_attachments(dirs):
+    """两个同扩展名附件跟随同一个视频时，也会撞到同一个目标名。"""
+    src, dst, _ = dirs
+    v = make_file(src / "ABP-123.mp4")
+    s1 = make_file(src / "a.srt")
+    s2 = make_file(src / "b.srt")
+    proc = make_processor(
+        dst, attachment_naming="跟随视频命名", existing_file_handling="覆盖",
+    )
+    planned = proc.plan(
+        [result(v, "ABP-123"), result(s1, "ABP-123"), result(s2, "ABP-123")]
+    )
+    assert list(find_target_collisions(planned)) == [str(dst / "ABP-123" / "ABP-123.srt")]
 
 
 # ---------------------------------------------------------------------------
@@ -500,8 +566,8 @@ def test_undo_empty_record_keeps_file(dirs):
     assert ops_file.exists()                                # 什么都没做 → 不删记录
 
 
-def test_undo_overwrites_file_that_reappeared(dirs):
-    """现状记录：撤回时不检查原路径是否已被占用，直接覆盖。"""
+def test_undo_skips_when_original_path_is_occupied(dirs):
+    """原路径又被占用时不覆盖：计入失败、保留记录、原因写进日志，交给用户处理。"""
     src, dst, base = dirs
     a = make_file(src / "ABP-123.mp4", "moved content")
     proc = make_processor(dst)
@@ -510,5 +576,11 @@ def test_undo_overwrites_file_that_reappeared(dirs):
     proc.save_operations(ops, ops_file)
     make_file(a, "someone else wrote here")                 # 原路径又出现同名文件
 
-    assert proc.undo(ops_file) == (1, 0)
-    assert a.read_text(encoding="utf-8") == "moved content"
+    seen: list[str] = []
+    success, failed = proc.undo(ops_file, progress=lambda op, s: seen.append(s))
+
+    assert (success, failed) == (0, 1)
+    assert seen == ["occupied"]
+    assert a.read_text(encoding="utf-8") == "someone else wrote here"       # 没被覆盖
+    assert (dst / "ABP-123" / "ABP-123.mp4").read_text(encoding="utf-8") == "moved content"
+    assert ops_file.exists()                                # 记录保留，处理完冲突可重试

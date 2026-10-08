@@ -60,7 +60,9 @@ def save_text_report(results: list[ScrapeResult], path: Path) -> None:
         "-" * 50,
     ]
     for r in results:
-        if r.inherited:
+        if r.manually_edited:
+            icon = "✎"
+        elif r.inherited:
             icon = "↳"
         elif r.is_extracted:
             icon = "✓"

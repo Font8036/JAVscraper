@@ -376,12 +376,15 @@ class ScanTab(ttk.Frame):
         r.inherited = inherited
 
     def _save_corrected_results(self) -> None:
-        """把修正写回本次扫描生成的 JSON，供移动页重新加载。"""
+        """把修正写回本次扫描生成的 JSON / TXT / CSV，供移动页和用户重新查看。"""
         path = self._current_json_path
         if path is None:
             return
+        run_dir = path.parent
         try:
             save_json(self._results, path)
+            save_text_report(self._results, run_dir / "extraction_report.txt")
+            save_csv(self._results, run_dir / "extraction_table.csv")
         except Exception as e:
             self._append_log(f"[错误] 保存修正结果失败：{e}")
 

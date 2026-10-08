@@ -205,7 +205,7 @@ class MoveTab(ttk.Frame):
 
     def _preview_worker(self, json_path: str) -> None:
         try:
-            proc = FileProcessor(self._effective_config())
+            proc = self._make_processor() 
             results = proc.load_results(json_path)
             planned = proc.plan(results)
             self._q.put(("planned", planned))
@@ -246,7 +246,7 @@ class MoveTab(ttk.Frame):
 
     def _execute_worker(self, planned: list[PlannedOperation]) -> None:
         try:
-            proc = FileProcessor(self._effective_config())
+            proc = self._make_processor() 
 
             def on_progress(idx, total, op, status):
                 self._q.put(("progress", (idx, total, op, status)))
@@ -286,12 +286,20 @@ class MoveTab(ttk.Frame):
                 self._q.put(("log", f"[错误] 找不到记录文件：{ops_file}"))
                 self._q.put(("undo_done", None))
                 return
-            proc = FileProcessor(self._effective_config())
+            proc = self._make_processor() 
             success, failed = proc.undo(ops_file)
             self._q.put(("undo_done", (success, failed)))
         except Exception:
             logging.getLogger("av_scraper.processor").exception("撤回失败")
             self._q.put(("undo_done", None))
+
+    def _make_processor(self) -> FileProcessor:
+        scraper_cfg = self.app.app_config.scraper
+        return FileProcessor(
+            self._effective_config(),
+            video_exts=scraper_cfg.video_extensions,
+            attachment_exts=scraper_cfg.attachment_extensions,
+        )
 
     # ---------- 主线程消费 ----------
     def _poll(self) -> None:

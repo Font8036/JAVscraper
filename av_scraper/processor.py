@@ -10,9 +10,6 @@ from pathlib import Path
 from typing import Callable, Optional
 from .defaults import DEFAULT_ATTACHMENT_EXTENSIONS, DEFAULT_VIDEO_EXTENSIONS
 from .config import ProcessorConfig
-_VIDEO_EXTENSIONS = DEFAULT_VIDEO_EXTENSIONS
-_ATTACHMENT_EXTENSIONS = DEFAULT_ATTACHMENT_EXTENSIONS
-
 
 logger = logging.getLogger(__name__)
 
@@ -35,12 +32,21 @@ class MoveOperation:
 
 
 class FileProcessor:
-    def __init__(self, config: ProcessorConfig):
+    def __init__(
+        self,
+        config: ProcessorConfig,
+        *,
+        video_exts: Optional[list[str]] = None,
+        attachment_exts: Optional[list[str]] = None,
+    ):
         self.config = config
-        # 附件跟随需要知道哪些扩展名是视频/附件，直接从 ScraperConfig 拿不到，
-        # 但扩展名分类本身与"提取"无关，用一个独立的小集合即可
-        self._video_exts = {e.lower() for e in _VIDEO_EXTENSIONS}
-        self._attachment_exts = {e.lower() for e in _ATTACHMENT_EXTENSIONS}
+        # 默认用常量兜底，方便单元测试；生产路径由调用方显式传入
+        self._video_exts = {
+            e.lower() for e in (video_exts or DEFAULT_VIDEO_EXTENSIONS)
+        }
+        self._attachment_exts = {
+            e.lower() for e in (attachment_exts or DEFAULT_ATTACHMENT_EXTENSIONS)
+        }
 
     # ---------- 载入结果 ----------
     @staticmethod

@@ -165,6 +165,16 @@ class ConfigWindow(tk.Toplevel):
     # ============================================================
     # 按钮
     # ============================================================
+
+    def _notify_parent(self, text: str) -> None:
+        """在主窗口状态栏提示。父窗口不提供接口时静默忽略。"""
+        set_status = getattr(self.master, "set_status", None)
+        if callable(set_status):
+            try:
+                set_status(text)
+            except Exception:
+                pass
+
     def _on_reset(self) -> None:
         if not messagebox.askyesno(
             "确认重置",
@@ -188,7 +198,10 @@ class ConfigWindow(tk.Toplevel):
         if errors:
             messagebox.showerror("部分重置失败", "\n".join(errors), parent=self)
         else:
-            messagebox.showinfo("完成", "已恢复默认配置。", parent=self)
+            try:
+                self._notify_parent("已恢复默认配置。")
+            except Exception:
+                pass
 
     def _on_reload(self) -> None:
         try:
@@ -197,14 +210,21 @@ class ConfigWindow(tk.Toplevel):
         except Exception as e:
             messagebox.showerror("重新加载失败", str(e), parent=self)
             return
-        messagebox.showinfo("完成", "已从磁盘重新加载配置。", parent=self)
+        try:
+            self._notify_parent("已从磁盘重新加载配置。")
+        except Exception:
+            pass
 
     def _on_apply(self) -> None:
         errors = self._apply_all()
         if errors:
             messagebox.showerror("部分保存失败", "\n".join(errors), parent=self)
         else:
-            messagebox.showinfo("完成", "配置已保存并应用。", parent=self)
+            # 不弹窗，只在父窗口状态栏提示
+            try:
+                self._notify_parent("配置已保存并应用。")
+            except Exception:
+                pass
 
     def _on_ok(self) -> None:
         errors = self._apply_all()

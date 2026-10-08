@@ -114,7 +114,8 @@ JAVscraper/
 │
 ├── test/                           # 测试与生成脚本
 │   ├── gen_test_files.py           # 造一批测试文件，用来验证扫描
-│   └── test_scraper.py             # scraper 单元测试（pytest）
+│   ├── test_scraper.py             # 番号提取 / 扫描的单元测试（pytest）
+│   └── test_processor.py           # 移动 / 撤回的单元测试（pytest）
 │
 └── av_scraper/                     # 主包
     ├── __init__.py                 # __version__
@@ -950,14 +951,15 @@ python test/gen_test_files.py --clean
 
 ### 单元测试
 
-`test/test_scraper.py` 覆盖 `CodeExtractor` 的提取规则与边界、文件分类、`scan_directory`：
-
 ```bash
-python -m pytest test/test_scraper.py -q
+python -m pytest -q                        # 全部
+python -m pytest test/test_scraper.py -q   # 只跑番号提取
 ```
 
+- `test/test_scraper.py`：`CodeExtractor` 的提取规则与边界、文件分类、`scan_directory`
+- `test/test_processor.py`：目标路径规划与三种冲突处理、"跟随视频命名"、移动执行的统计与进度回调、移动记录的读写与撤回
+
 用例自带夹具、不依赖 `tmp_path`，所以在写入受限的环境里也能跑（那种环境可再加 `-p no:cacheprovider` 跳过 pytest 缓存）。
-`processor.py`（移动 / 撤回）目前还没有测试，欢迎补上。
 
 ---
 

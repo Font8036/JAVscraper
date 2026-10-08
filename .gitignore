@@ -1,5 +1,7 @@
 __pycache__/
 *.py[cod]
+.ruff_cache/
+.pytest_cache/
 *.egg-info/
 build/
 dist/
@@ -8,17 +10,19 @@ cache/
 venv/
 config.json
 log/
+tmp/
 .vscode/
 *.spec
 *.ffs_db
 pyi-archive_viewer
 *.png
 handoff.md
-# 生成的文件
+# 生成的文件（注意：不能整目录忽略 test/，否则 test/ 里的测试用例没法纳入版本管理）
 files/
 files_*/
 test_*/
-test/
+test/files/
+test/files_*/
 # 保留脚本本身
 !gen_test_files.py
 !icon.png

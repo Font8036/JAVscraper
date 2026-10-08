@@ -113,8 +113,8 @@ JAVscraper/
 │       └── tab.py                  # 兼作插件与配置页提供者
 │
 ├── test/                           # 测试与生成脚本
-│   ├── gen_test_files.py
-│   └── .gitignore
+│   ├── gen_test_files.py           # 造一批测试文件，用来验证扫描
+│   └── test_scraper.py             # scraper 单元测试（pytest）
 │
 └── av_scraper/                     # 主包
     ├── __init__.py                 # __version__
@@ -948,26 +948,16 @@ python test/gen_test_files.py --clean
 - [ ] 插件加载：完整版能看到插件标签页，核心版看不到
 - [ ] 插件错误处理：手动删掉某个插件的依赖，应显示错误标签页而非崩溃
 
-### 单元测试（待补充）
+### 单元测试
 
-`scraper.py` 和 `processor.py` 适合写 pytest：
+`test/test_scraper.py` 覆盖 `CodeExtractor` 的提取规则与边界、文件分类、`scan_directory`：
 
-```python
-import pytest
-from av_scraper.config import ScraperConfig
-from av_scraper.scraper import CodeExtractor
-
-@pytest.mark.parametrize("filename,expected", [
-    ("ABC-123.mp4", "ABC-123"),
-    ("ABC_123.mp4", "ABC-123"),
-    ("FC2PPV1234567.mp4", "FC2-1234567"),
-    ("ABCD-123.mp4", "ABCD-123"),   # 最长优先
-    ("random.mp4", None),
-])
-def test_extract(filename, expected):
-    ext = CodeExtractor(ScraperConfig())
-    assert ext.extract(filename) == expected
+```bash
+python -m pytest test/test_scraper.py -q
 ```
+
+用例自带夹具、不依赖 `tmp_path`，所以在写入受限的环境里也能跑（那种环境可再加 `-p no:cacheprovider` 跳过 pytest 缓存）。
+`processor.py`（移动 / 撤回）目前还没有测试，欢迎补上。
 
 ---
 

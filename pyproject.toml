@@ -135,3 +135,5 @@ ignore = [
 testpaths = ["test"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
+# 让直接跑 `pytest`（而不只是 `python -m pytest`）也能 import 到仓库根目录下的 av_scraper
+pythonpath = ["."]

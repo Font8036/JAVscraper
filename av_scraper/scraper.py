@@ -49,12 +49,15 @@ class CodeExtractor:
         seps = [re.escape(s) for s in self.config.separators]
 
         # 1. FC2
+        # 连接符可有可无：实际文件里 FC2PPV1234567 / FC2-PPV-1234567 / FC2PPV-1234567 都常见。
+        # 但"裸 FC2 + 数字"仍要求连接符，避免把 FC21234567 这类无关编号误认。
+        # 两个模式都要 (?!\d)：否则 FC2-12345678 会被截成 FC2-1234567。
         self._fc2_patterns: list[re.Pattern] = []
         for s in seps:
             self._fc2_patterns.append(
-                re.compile(rf"FC2{s}PPV{s}({_D}{{6,7}})"))
+                re.compile(rf"FC2(?:{s})?PPV(?:{s})?({_D}{{6,7}})(?!{_D})"))
             self._fc2_patterns.append(
-                re.compile(rf"FC2{s}({_D}{{6,7}})"))
+                re.compile(rf"FC2{s}({_D}{{6,7}})(?!{_D})"))
 
         # 2. 字母前缀
         prefixes = sorted(
@@ -75,8 +78,9 @@ class CodeExtractor:
             self._prefix_patterns[prefix] = pats
 
         # 3. 六位数字前缀
+        # (?<!\d) 不可省：否则 1234567-789 会从第 2 位开始匹配，抓出错误的 234567-789
         self._digital_patterns: list[re.Pattern] = [
-            re.compile(rf"({_D}{{6}}){s}({_D}{{3}})(?!{_D})")
+            re.compile(rf"(?<!{_D})({_D}{{6}}){s}({_D}{{3}})(?!{_D})")
             for s in seps
         ]
 

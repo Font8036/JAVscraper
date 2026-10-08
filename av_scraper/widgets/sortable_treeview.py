@@ -60,6 +60,7 @@ class SortableTreeview(ttk.Frame):
         height: int = 16,
         searchable: bool = False,
         editable: bool = False,      # ← 新增：组件级总开关
+        context_menu: bool = True,       # ← 新增
         filter_func: Optional[Callable[[Any, str], bool]] = None,
         on_sort_changed: Optional[Callable[[Optional[str], str], None]] = None,
         on_selection_changed: Optional[Callable[[], None]] = None,
@@ -74,6 +75,7 @@ class SortableTreeview(ttk.Frame):
         self._custom_filter_func = filter_func
         self._height = height
         self._editable = editable
+        self._context_menu_enabled = context_menu      # ← 新增
 
         # 数据
         self._original_data: list[Any] = []
@@ -197,6 +199,8 @@ class SortableTreeview(ttk.Frame):
             self.tree.bind("<Button-1>", self._on_tree_click, add="+")
             self._update_headers()
         self._apply_row_height()      # ← 新增
+        if self._context_menu_enabled:
+            self.tree.bind("<Button-3>", self._on_right_click, add="+")
         if self._editable:
             self.tree.bind("<Double-1>", self._on_double_click, add="+")
 
@@ -635,6 +639,143 @@ class SortableTreeview(ttk.Frame):
             entry.destroy()
         except Exception:
             pass
+
+    # ============================================================
+    # 右键菜单
+    # ============================================================
+    def _on_right_click(self, event) -> Optional[str]:
+        region = self.tree.identify_region(event.x, event.y)
+        if region == "heading":
+            key = self._column_key_at(event.x)
+            if key is None:
+                return None
+            col = self._columns_by_key.get(key)
+            if col is None or col.kind == "checkbox":
+                return None
+            self._show_context_menu(event, heading_key=key)
+            return "break"
+
+        if region in ("cell", "tree"):
+            iid = self.tree.identify_row(event.y)
+            key = self._column_key_at(event.x)
+            if not iid or key is None:
+                return None
+            col = self._columns_by_key.get(key)
+            if col is None or col.kind == "checkbox":
+                return None
+            self._show_context_menu(event, iid=iid, cell_key=key)
+            return "break"
+
+        return None
+
+    def _column_key_at(self, x: int) -> Optional[str]:
+        """把屏幕 x 坐标换算成列 key。识别不出返回 None。"""
+        col_id = self.tree.identify_column(x)
+        if not col_id:
+            return None
+        try:
+            idx = int(col_id[1:]) - 1
+        except ValueError:
+            return None
+        cols = list(self.tree["columns"])
+        if idx < 0 or idx >= len(cols):
+            return None
+        return cols[idx]
+
+    def _show_context_menu(
+        self,
+        event,
+        *,
+        iid: Optional[str] = None,
+        cell_key: Optional[str] = None,
+        heading_key: Optional[str] = None,
+    ) -> None:
+        menu = tk.Menu(self, tearoff=0)
+
+        if heading_key is not None:
+            col = self._columns_by_key.get(heading_key)
+            if col is None:
+                return
+            label = f"复制整列（{col.header}）" if col.header else "复制整列"
+            menu.add_command(
+                label=label,
+                command=lambda k=heading_key: self._copy_column(k),
+            )
+        else:
+            # 调用方 _on_right_click 已保证这两个非 None；
+            # 这里收窄类型，方便 Pylance 推断，也做一层防御。
+            if iid is None or cell_key is None:
+                return
+            menu.add_command(
+                label="复制单元格",
+                command=lambda i=iid, k=cell_key: self._copy_cell(i, k),
+            )
+            menu.add_command(
+                label="复制整行",
+                command=lambda i=iid: self._copy_row(i),
+            )
+            if self._checkbox_key is not None:
+                menu.add_separator()
+                menu.add_command(
+                    label="复制已勾选行",
+                    command=self._copy_selected_rows,
+                )
+
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+
+    # ---------- 复制实现 ----------
+    def _copy_to_clipboard(self, text: str) -> None:
+        """写入系统剪贴板。
+
+        必须调 update() —— Tk 是延迟提供数据的，进程一退出剪贴板就空了。
+        内容极大时 update() 会有短暂卡顿，但日常复制一两行无感。
+        """
+        try:
+            self.clipboard_clear()
+            self.clipboard_append(text)
+            self.update()
+        except Exception:
+            pass
+
+    def _row_cells(self, data: Any) -> list[str]:
+        """把一行的所有非勾选列渲染成文本列表。"""
+        return [
+            self._render_cell(c, data)
+            for c in self._columns
+            if c.kind != "checkbox"
+        ]
+
+    def _copy_cell(self, iid: str, key: str) -> None:
+        data = self._data_by_iid.get(iid)
+        col = self._columns_by_key.get(key)
+        if data is None or col is None or col.kind == "checkbox":
+            return
+        self._copy_to_clipboard(self._render_cell(col, data))
+
+    def _copy_row(self, iid: str) -> None:
+        data = self._data_by_iid.get(iid)
+        if data is None:
+            return
+        self._copy_to_clipboard("\t".join(self._row_cells(data)))
+
+    def _copy_column(self, key: str) -> None:
+        """复制整列——只复制当前可见的部分。"""
+        col = self._columns_by_key.get(key)
+        if col is None or col.kind == "checkbox":
+            return
+        lines = [self._render_cell(col, d) for d in self._visible_data]
+        self._copy_to_clipboard("\n".join(lines))
+
+    def _copy_selected_rows(self) -> None:
+        """复制所有已勾选的行（不只可见行）。"""
+        rows = self.get_selected()
+        if not rows:
+            return
+        lines = ["\t".join(self._row_cells(d)) for d in rows]
+        self._copy_to_clipboard("\n".join(lines))
 
     # ============================================================
     # 搜索

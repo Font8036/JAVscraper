@@ -13,6 +13,7 @@ log/
 *.ffs_db
 pyi-archive_viewer
 *.png
+handoff.md
 # 生成的文件
 files/
 files_*/

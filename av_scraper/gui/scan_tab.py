@@ -8,14 +8,15 @@ import threading
 import tkinter as tk
 from pathlib import Path
 from tkinter import messagebox, ttk
-from typing import Any, Optional
+from typing import Any
 
-from ..paths import log_dir
 from ..config import ScraperConfig
+from ..paths import log_dir
 from ..reports import make_run_directory, save_csv, save_json, save_text_report
 from ..scraper import CodeExtractor, ScrapeResult
-from .common import QueueLogHandler, human_size
 from ..widgets import Column, HistoryPathInput, SortableTreeview
+from .common import QueueLogHandler, human_size
+
 
 class ScanTab(ttk.Frame):
     def __init__(self, master, app):
@@ -24,7 +25,7 @@ class ScanTab(ttk.Frame):
         self._q: queue.Queue[Any] = queue.Queue()
         self._scanning = False
         self._results: list[ScrapeResult] = []
-        self._current_json_path: Optional[Path] = None
+        self._current_json_path: Path | None = None
         self._total_files = 0          # ← 新增
         self._scanned_count = 0        # ← 新增
         self._build()
@@ -190,7 +191,7 @@ class ScanTab(ttk.Frame):
                 progress=lambda r: self._q.put(("row", r)),
                 on_total=lambda n: self._q.put(("total", n)),   # ← 新增
             )
-            
+
             base = cfg.output_directory or str(log_dir())
             run_dir = make_run_directory(base)
             save_json(results, run_dir / cfg.output_filename)
@@ -248,7 +249,7 @@ class ScanTab(ttk.Frame):
     def _insert_row(self, r: ScrapeResult) -> None:
         self.result_tree.append_row(r)
 
-    def _finish(self, results: Optional[list[ScrapeResult]]) -> None:
+    def _finish(self, results: list[ScrapeResult] | None) -> None:
         self._scanning = False
         self.btn_scan.configure(state="normal")
         if results is None:
@@ -257,7 +258,7 @@ class ScanTab(ttk.Frame):
             return
 
         self._results = results
-        
+
         # —— 记住本次使用的目录 ——
         self.dir_input.commit()
 
@@ -281,7 +282,7 @@ class ScanTab(ttk.Frame):
             return False
 
         old = r.extracted_code
-        r.extracted_code = new_value        
+        r.extracted_code = new_value
         r.status = "extracted"              # 用户主动纠正，认为结果有效
         r.manually_edited = True            # ← 新增
 

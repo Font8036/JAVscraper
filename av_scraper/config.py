@@ -5,12 +5,13 @@
 """
 
 from __future__ import annotations
+
 import dataclasses
 import json
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from .defaults import DEFAULT_ATTACHMENT_EXTENSIONS, DEFAULT_VIDEO_EXTENSIONS, DEFAULT_PREFIXES
+from .defaults import DEFAULT_ATTACHMENT_EXTENSIONS, DEFAULT_PREFIXES, DEFAULT_VIDEO_EXTENSIONS
 from .fileio import write_via_temp
 
 
@@ -28,7 +29,7 @@ class ScraperConfig:
     output_filename: str = field(
         default="scraper_results.json",
         metadata={
-            "label": "输出文件名", 
+            "label": "输出文件名",
             "kind": "str",
             "tooltip": "扫描结果 JSON 的文件名。移动功能需要读取这份文件。一般不需要修改。",
         },
@@ -81,9 +82,9 @@ class ScraperConfig:
     known_alpha_prefixes: list[str] = field(
         default_factory=lambda: list(DEFAULT_PREFIXES),
         metadata={
-            "label": "已知字母前缀", 
+            "label": "已知字母前缀",
             "kind": "list",
-            "big": True, 
+            "big": True,
             "row_group": "scraper_lists",
         },
     )
@@ -106,7 +107,7 @@ class ProcessorConfig:
     move_to_extracted_folder: bool = field(
         default=True,
         metadata={
-            "label": "移动到提取名子文件夹", 
+            "label": "移动到提取名子文件夹",
             "kind": "bool",
             "row_group": "processor_naming",   # ← 新增
             "tooltip": "勾上后，每个番号建一个子文件夹，文件放进去。\n"
@@ -254,14 +255,14 @@ class AppConfig:
     confirm_on_close: bool = field(
         default=True,
         metadata={
-            "label": "关闭时二次确认", 
+            "label": "关闭时二次确认",
             "kind": "bool",
         },
     )
     max_recent_dirs: int = field(
         default=5,
         metadata={
-            "label": "历史目录上限", 
+            "label": "历史目录上限",
             "kind": "int",
         },
     )
@@ -271,7 +272,7 @@ class AppConfig:
         default=8,
         metadata={
             "label": "日志区高度（行）", "kind": "int",
-            "row_group": "界面布局", 
+            "row_group": "界面布局",
             "tooltip": "各页面日志区显示的行数。\n日志区高度不会随窗口大小自动调整。",
         },
     )
@@ -279,7 +280,7 @@ class AppConfig:
         default=10,
         metadata={
             "label": "表格区高度（行）", "kind": "int",
-            "row_group": "界面布局", 
+            "row_group": "界面布局",
             "tooltip": "各页面表格默认显示的行数。\n表格高度会随窗口大小自动调整，但不会小于这个值。",
         },
     )
@@ -287,7 +288,7 @@ class AppConfig:
         default=100,
         metadata={
             "label": "界面缩放(%)",
-            "row_group": "界面布局", 
+            "row_group": "界面布局",
             "kind": "int",
             "tooltip": "100 = 系统默认大小；150 = 放大 50%。\n"
                     "范围建议 75~200，改动后需重启程序生效。",
@@ -296,11 +297,11 @@ class AppConfig:
 
     # ---------- 读写 ----------
     @classmethod
-    def load(cls, path: Path) -> "AppConfig":
+    def load(cls, path: Path) -> AppConfig:
         return cls.load_with_notices(path)[0]
 
     @classmethod
-    def load_with_notices(cls, path: Path) -> "tuple[AppConfig, list[str]]":
+    def load_with_notices(cls, path: Path) -> tuple[AppConfig, list[str]]:
         """读配置，并返回「程序替你改过的地方」的说明，供 GUI 弹窗告知用户。
 
         - 文件不存在：按默认值新建并落盘（首次运行有单独的欢迎提示，这里不重复提示）

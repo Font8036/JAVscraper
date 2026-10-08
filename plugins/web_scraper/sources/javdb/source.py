@@ -24,7 +24,7 @@ from av_scraper.widgets import (
 
 from ...shared.browser import BrowserSession
 from ...shared.notify import play_beep, show_toast
-from .config import JavdbSourceConfig, normalize_base_url
+from .config import JavdbSourceConfig
 from .fetch import load_targets, save_csv, scrape_javdb
 from .parse import is_matched
 from .report import build_excel

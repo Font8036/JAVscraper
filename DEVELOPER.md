@@ -121,6 +121,7 @@ JAVscraper/
 ├── test/                           # 测试与生成脚本
 │   ├── conftest.py                 # 共用夹具（真实文件占用 / 可写临时目录）
 │   ├── gen_test_files.py           # 造一批测试文件，用来验证扫描
+│   ├── import_smoke.py             # 把所有模块 import 一遍（改注解 / import 后跑）
 │   ├── test_scraper.py             # 番号提取 / 扫描的单元测试（pytest）
 │   ├── test_processor.py           # 移动 / 撤回的单元测试（pytest）
 │   ├── test_config.py              # 配置读写与"改了要提示"的单元测试
@@ -128,7 +129,8 @@ JAVscraper/
 │   ├── test_fileio.py              # 原子写 / 占用识别 / 备选文件名的单元测试
 │   ├── test_save_guard.py          # 保存失败三按钮处置流程的单元测试
 │   ├── test_plugin_poll.py         # 插件轮询（重入 / 异常后仍能继续）的单元测试
-│   └── test_cli.py                 # 命令行模式（含 GBK 控制台安全）的单元测试
+│   ├── test_cli.py                 # 命令行模式（含 GBK 控制台安全）的单元测试
+│   └── test_plugin_config.py       # 插件配置原子写的单元测试
 │
 └── av_scraper/                     # 主包
     ├── __init__.py                 # __version__
@@ -341,6 +343,8 @@ class MoveOperation:
 - `discard()`：尽力删临时文件，失败不抛错（worker 线程里清理失败不该让任务无声死掉）。
 
 配套界面在 `widgets/save_guard.py`：`resolve_locked_target()` 在主线程弹三按钮窗（重试 / 换文件名保存 / 另存为…），按用户选择重试**同一份已经生成好的临时文件**。它的 `ask` / `choose_path` / `timestamp` 都可注入，所以这套分支不开窗口也能单测（见 `test/test_save_guard.py`）。
+
+用它的地方：核心的配置保存与报告导出（`config.py` / `reports.py`）、两个爬虫源生成的 xlsx、以及**三个插件自己的配置类**（`plugins/*/config.py` 的 `save()`）。
 
 > ⚠️ Windows 事实（实测）：目标文件被 Excel / WPS 独占打开时，**`os.replace` 一样会失败**（WinError 5 / 32）。原子替换解决的是"别把旧文件写坏"，不是"绕过占用" —— 占用只能交给用户处置。
 
@@ -1058,9 +1062,22 @@ python -m pytest test/test_scraper.py -q   # 只跑番号提取
 - `test/test_save_guard.py`：占用处置状态机（重试 / 换名 / 另存为 / 关窗口），全部注入假弹窗
 - `test/test_plugin_poll.py`：插件轮询的顺序处理、重入拦截、异常后仍能继续
 - `test/test_cli.py`：真建文件、真移文件的命令行测试；重点是"不动文件的预览"、"非交互必须 `--yes`"、"`--json -` 只吐 JSON"、"输出能用 GBK 编码"
+- `test/test_plugin_config.py`：三个插件配置类的往返读写、覆盖后不留 `.saving` 临时文件、替换失败时旧配置完好
 - `test/conftest.py`：`locker` 夹具用 ctypes 的 `dwShareMode=0` 造**真实的文件占用**，`work_dir` 提供临时目录
 
 用例自带夹具、不依赖 `tmp_path`，所以在写入受限的环境里也能跑（那种环境可再加 `-p no:cacheprovider` 跳过 pytest 缓存）。
+
+### 代码检查（ruff）
+
+```bash
+python -m ruff check .                  # 核心 + 入口脚本（当前全绿）
+python -m ruff check plugins test       # 插件与测试：配置里默认排除，要显式指定
+```
+
+- **`plugins/` 与 `test/` 默认不检查**（`[tool.ruff] exclude`）。这两个目录下还有约 100 条纯风格提示（`UP045` / `E701` 等），要不要纳入检查属于项目决策。
+- **`run_full.py` 豁免了 `E402` 与 `I001`**（`[tool.ruff.lint.per-file-ignores]`）。那个文件必须先把 `plugins/` 塞进 `sys.path` 再 import，import 又按插件分组排列（好让 PyInstaller 静态分析不漏），这两条是结构性的，不是随手写的。
+- **`UP045`（`Optional[X]` → `X | None`）在这些文件里是安全的**，因为每个文件都有 `from __future__ import annotations`：注解根本不会被求值。改注解时**别漏掉这个前提**，项目要求 Python 3.9，`X | None` 在运行期求值会直接 `TypeError`。
+- 注解变成"字符串"之后，写错名字的注解**不会**在 import 时报错，所以光靠 pytest 验证不够：改完跑一遍 `python test/import_smoke.py`（把 `av_scraper` 与 `plugins` 下所有模块 import 一遍，GUI 的几个模块平时没有测试直接 import）。
 
 ---
 

@@ -25,7 +25,7 @@ from av_scraper.widgets import (
 
 from ...shared.browser import BrowserSession
 from ...shared.notify import play_beep, show_toast
-from .config import SubtitleCatConfig, normalize_base_url
+from .config import SubtitleCatConfig
 from .fetch import load_targets, scrape_subtitlecat
 from .report import build_excel
 

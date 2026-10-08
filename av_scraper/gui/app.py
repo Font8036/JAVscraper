@@ -1,20 +1,22 @@
 """主窗口。"""
 
 from __future__ import annotations
-import sys
+
 import dataclasses
 import logging
+import sys
 import tkinter as tk
+from dataclasses import replace
 from pathlib import Path
 from tkinter import ttk
-from dataclasses import replace
-from typing import Optional, cast
-from .common import apply_ui_scaling, scale_size, set_window_icon, centered_geometry
+from typing import cast
+
 from ..config import AppConfig, ProcessorConfig, ScraperConfig
 from ..paths import log_dir
 from ..plugin_api import PluginContext
 from ..plugin_loader import discover_plugins, instantiate_plugin
 from ..widgets import ConfigForm
+from .common import apply_ui_scaling, centered_geometry, scale_size, set_window_icon
 from .config_window import ConfigPage, ConfigWindow
 from .move_tab import MoveTab
 from .scan_tab import ScanTab
@@ -38,8 +40,8 @@ class App(tk.Tk):
         self.app_config, self._config_notices = AppConfig.load_with_notices(config_path)
         # 关键：在构建任何控件之前设置缩放
         self._apply_ui_scaling()
-        self._config_window: Optional[tk.Toplevel] = None
-        self._about_window: Optional[tk.Toplevel] = None
+        self._config_window: tk.Toplevel | None = None
+        self._about_window: tk.Toplevel | None = None
         self._build()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         # 布局完成，显示窗口
@@ -164,7 +166,6 @@ class App(tk.Tk):
         if self._raise_if_exists(self._about_window):
             return
         from .dialogs import show_about
-        from .. import __version__
 
         # 收集已加载插件
         plugins: list[tuple[str, str]] = []
@@ -280,7 +281,7 @@ class App(tk.Tk):
         return frame
 
     @staticmethod
-    def _raise_if_exists(window: Optional[tk.Toplevel]) -> bool:
+    def _raise_if_exists(window: tk.Toplevel | None) -> bool:
         """若窗口已存在则把它抬到前台并返回 True；否则返回 False。"""
         if window is None:
             return False

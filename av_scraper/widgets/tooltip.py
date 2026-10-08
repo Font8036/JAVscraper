@@ -93,8 +93,8 @@ class QuestionMark(ttk.Label):
 
     def __init__(self, parent, text: str):
         super().__init__(
-            parent, 
-            text="?", 
+            parent,
+            text="?",
             foreground="#0a58ca",
             cursor="question_arrow",
         )

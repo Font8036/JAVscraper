@@ -14,7 +14,6 @@ import logging
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
 
 from .plugin_api import Plugin, PluginContext
 
@@ -37,8 +36,8 @@ class PluginSpec:
     entry_module: str
     entry_class: str
     dependencies: list[str] = field(default_factory=list)
-    plugin_class: Optional[type] = None
-    error: Optional[str] = None
+    plugin_class: type | None = None
+    error: str | None = None
 
 
 # ---------- 路径定位 ----------
@@ -49,7 +48,7 @@ def user_plugins_root() -> Path:
     return Path(__file__).resolve().parent.parent / "plugins"
 
 
-def bundled_plugins_root() -> Optional[Path]:
+def bundled_plugins_root() -> Path | None:
     """打包时用 --add-data 塞进去的插件目录。"""
     meipass = getattr(sys, "_MEIPASS", None)
     if meipass:
@@ -102,7 +101,7 @@ def _import_plugin_module(plugin_dir: Path, module_name: str):
 
 
 # ---------- 发现 ----------
-def _load_spec(plugin_dir: Path) -> Optional[PluginSpec]:
+def _load_spec(plugin_dir: Path) -> PluginSpec | None:
     manifest_path = plugin_dir / "plugin.json"
     if not manifest_path.exists():
         return None
@@ -173,7 +172,7 @@ def discover_plugins() -> list[PluginSpec]:
     return specs
 
 
-def instantiate_plugin(spec: PluginSpec, ctx: PluginContext) -> Optional[Plugin]:
+def instantiate_plugin(spec: PluginSpec, ctx: PluginContext) -> Plugin | None:
     if spec.plugin_class is None:
         return None
     try:

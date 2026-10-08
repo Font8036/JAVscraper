@@ -17,9 +17,9 @@ from __future__ import annotations
 import re
 import tkinter as tk
 from dataclasses import dataclass
-from tkinter import ttk
 from tkinter import font as tkfont
-from typing import Any, Callable, Literal, Optional
+from tkinter import ttk
+from typing import Any, Callable, Literal
 
 _AnchorT = Literal["nw", "n", "ne", "w", "center", "e", "sw", "s", "se"]
 _COL_ALL = "全部列"
@@ -38,7 +38,7 @@ class Column:
     header: str
     width: int
     display: Callable[[Any], str] = lambda _d: ""
-    sort: Optional[Callable[[Any], Any]] = None
+    sort: Callable[[Any], Any] | None = None
     anchor: _AnchorT = "w"
     stretch: bool = False
     sortable: bool = True
@@ -46,7 +46,7 @@ class Column:
     kind: str = "text"        # "text" / "checkbox"
     # ---- 新增 ----
     editable: bool = False
-    on_edit: Optional[Callable[[Any, str], bool]] = None
+    on_edit: Callable[[Any, str], bool] | None = None
 
 class SortableTreeview(ttk.Frame):
     def __init__(
@@ -54,16 +54,16 @@ class SortableTreeview(ttk.Frame):
         parent,
         columns: list[Column],
         *,
-        key: Optional[Callable[[Any], str]] = None,
-        row_tags: Optional[Callable[[Any], tuple[str, ...]]] = None,
-        tag_configure: Optional[dict[str, dict]] = None,
+        key: Callable[[Any], str] | None = None,
+        row_tags: Callable[[Any], tuple[str, ...]] | None = None,
+        tag_configure: dict[str, dict] | None = None,
         height: int = 16,
         searchable: bool = False,
         editable: bool = False,      # ← 新增：组件级总开关
         context_menu: bool = True,       # ← 新增
-        filter_func: Optional[Callable[[Any, str], bool]] = None,
-        on_sort_changed: Optional[Callable[[Optional[str], str], None]] = None,
-        on_selection_changed: Optional[Callable[[], None]] = None,
+        filter_func: Callable[[Any, str], bool] | None = None,
+        on_sort_changed: Callable[[str | None, str], None] | None = None,
+        on_selection_changed: Callable[[], None] | None = None,
     ):
         super().__init__(parent)
         self._columns = list(columns)
@@ -83,25 +83,25 @@ class SortableTreeview(ttk.Frame):
         self._data_by_iid: dict[str, Any] = {}
 
         # 排序状态
-        self._sort_column: Optional[str] = None
+        self._sort_column: str | None = None
         self._sort_direction: str = "original"
 
         # 搜索状态
         self._filter_text = ""
-        self._search_var: Optional[tk.StringVar] = None
-        self._col_var: Optional[tk.StringVar] = None
-        self._filter_var: Optional[tk.StringVar] = None
-        self._regex_var: Optional[tk.BooleanVar] = None
-        self._match_label_var: Optional[tk.StringVar] = None
+        self._search_var: tk.StringVar | None = None
+        self._col_var: tk.StringVar | None = None
+        self._filter_var: tk.StringVar | None = None
+        self._regex_var: tk.BooleanVar | None = None
+        self._match_label_var: tk.StringVar | None = None
 
         # 编辑态（任意时刻至多一个编辑框）
-        self._edit_entry: Optional[ttk.Entry] = None
-        self._edit_var: Optional[tk.StringVar] = None
-        self._edit_iid: Optional[str] = None
-        self._edit_key: Optional[str] = None
+        self._edit_entry: ttk.Entry | None = None
+        self._edit_var: tk.StringVar | None = None
+        self._edit_iid: str | None = None
+        self._edit_key: str | None = None
 
         # 勾选状态
-        self._checkbox_key: Optional[str] = next(
+        self._checkbox_key: str | None = next(
             (c.key for c in columns if c.kind == "checkbox"), None,
         )
         self._selected: set[str] = set()
@@ -262,7 +262,7 @@ class SortableTreeview(ttk.Frame):
         self._notify_selection()
 
     def append_row(self, data: Any, *, scroll: bool = True,
-                   select: Optional[bool] = None) -> None:
+                   select: bool | None = None) -> None:
         """追加一行。
 
         select: 勾选列的初始状态。None 时沿用"默认全选"（如果开了勾选列）。
@@ -373,7 +373,7 @@ class SortableTreeview(ttk.Frame):
         self._notify_selection()
 
     # ---------- 点击处理 ----------
-    def _on_tree_click(self, event) -> Optional[str]:
+    def _on_tree_click(self, event) -> str | None:
         # 判断是不是点在勾选列上
         col_id = self.tree.identify_column(event.x)
         if not col_id:
@@ -432,10 +432,10 @@ class SortableTreeview(ttk.Frame):
     # ============================================================
     # 排序
     # ============================================================
-    def get_sort_state(self) -> tuple[Optional[str], str]:
+    def get_sort_state(self) -> tuple[str | None, str]:
         return self._sort_column, self._sort_direction
 
-    def set_sort_state(self, column: Optional[str], direction: str) -> None:
+    def set_sort_state(self, column: str | None, direction: str) -> None:
         if direction not in ("asc", "desc", "original"):
             raise ValueError(f"未知排序方向: {direction}")
         if direction == "original":
@@ -546,7 +546,7 @@ class SortableTreeview(ttk.Frame):
     # ============================================================
     # 单元格编辑
     # ============================================================
-    def _on_double_click(self, event) -> Optional[str]:
+    def _on_double_click(self, event) -> str | None:
         if not self._editable:
             return None
         if self.tree.identify_region(event.x, event.y) != "cell":
@@ -643,7 +643,7 @@ class SortableTreeview(ttk.Frame):
     # ============================================================
     # 右键菜单
     # ============================================================
-    def _on_right_click(self, event) -> Optional[str]:
+    def _on_right_click(self, event) -> str | None:
         region = self.tree.identify_region(event.x, event.y)
         if region == "heading":
             key = self._column_key_at(event.x)
@@ -668,7 +668,7 @@ class SortableTreeview(ttk.Frame):
 
         return None
 
-    def _column_key_at(self, x: int) -> Optional[str]:
+    def _column_key_at(self, x: int) -> str | None:
         """把屏幕 x 坐标换算成列 key。识别不出返回 None。"""
         col_id = self.tree.identify_column(x)
         if not col_id:
@@ -686,9 +686,9 @@ class SortableTreeview(ttk.Frame):
         self,
         event,
         *,
-        iid: Optional[str] = None,
-        cell_key: Optional[str] = None,
-        heading_key: Optional[str] = None,
+        iid: str | None = None,
+        cell_key: str | None = None,
+        heading_key: str | None = None,
     ) -> None:
         menu = tk.Menu(self, tearoff=0)
 

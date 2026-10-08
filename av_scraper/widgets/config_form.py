@@ -24,7 +24,7 @@ import tkinter as tk
 from dataclasses import fields
 from pathlib import Path
 from tkinter import filedialog, ttk
-from typing import Any, Optional
+from typing import Any
 
 from .tooltip import LabelWithTip, QuestionMark
 
@@ -37,7 +37,7 @@ class ConfigForm(ttk.Frame):
         self._config_cls = config_cls
         self._widgets: dict[str, tuple[str, Any]] = {}
         self._row_frames: dict[str, ttk.Frame] = {}    # ← 新增
-        self._loaded_instance: Optional[Any] = None
+        self._loaded_instance: Any | None = None
 
         self._build()
         if instance is not None:
@@ -267,7 +267,7 @@ class ConfigForm(ttk.Frame):
         return var
 
     def _browse(self, var: tk.StringVar, kind: str,
-                ext: Optional[str] = None) -> None:
+                ext: str | None = None) -> None:
         cur = var.get().strip()
 
         if kind == "dir":
@@ -334,7 +334,7 @@ class ConfigForm(ttk.Frame):
             kwargs[f.name] = self._read_widget(f, kind, widget)
         return self._config_cls(**kwargs)
 
-    def get_row_frame(self, field_name: str) -> Optional[ttk.Frame]:
+    def get_row_frame(self, field_name: str) -> ttk.Frame | None:
         """返回指定字段所在的行 Frame。可往里添加额外的按钮等控件。"""
         row = self._row_frames.get(field_name)
         if row is None:

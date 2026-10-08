@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any, Protocol
 
 from av_scraper.gui.config_window import ConfigPage

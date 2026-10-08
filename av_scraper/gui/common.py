@@ -1,11 +1,13 @@
 """GUI 通用工具。"""
 
 from __future__ import annotations
-import sys
-from pathlib import Path
+
 import logging
 import queue
+import sys
 import tkinter as tk
+from pathlib import Path
+
 
 class QueueLogHandler(logging.Handler):
     """把日志记录推入 queue，由主线程消费后写入 Text 控件。"""

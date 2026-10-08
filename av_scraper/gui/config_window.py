@@ -12,7 +12,9 @@ import tkinter as tk
 from dataclasses import dataclass
 from tkinter import messagebox, ttk
 from typing import Any, Callable
-from .common import set_window_icon, scale_size, center_and_show
+
+from .common import center_and_show, scale_size, set_window_icon
+
 
 @dataclass
 class ConfigPage:

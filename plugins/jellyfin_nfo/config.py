@@ -7,6 +7,8 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from av_scraper.fileio import write_via_temp
+
 
 _NFO_MODE_CHOICES = [
     "每个视频生成同名 NFO",
@@ -188,8 +190,6 @@ class JellyfinNfoConfig:
         return cls(**filtered)
 
     def save(self, path: Path) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            json.dumps(dataclasses.asdict(self), ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        # 原子写：写到一半失败时，磁盘上还是原来那份可用配置
+        text = json.dumps(dataclasses.asdict(self), ensure_ascii=False, indent=2)
+        write_via_temp(path, lambda tmp: tmp.write_text(text, encoding="utf-8"))

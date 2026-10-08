@@ -6,9 +6,8 @@ import asyncio
 import logging
 import time
 import re
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Callable, Optional
 from urllib.parse import quote, urljoin
 
 from playwright.async_api import async_playwright

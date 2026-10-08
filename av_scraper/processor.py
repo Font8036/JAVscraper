@@ -8,9 +8,10 @@ import shutil
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Callable, Optional
-from .defaults import DEFAULT_ATTACHMENT_EXTENSIONS, DEFAULT_VIDEO_EXTENSIONS
+from typing import Callable
+
 from .config import ProcessorConfig
+from .defaults import DEFAULT_ATTACHMENT_EXTENSIONS, DEFAULT_VIDEO_EXTENSIONS
 
 logger = logging.getLogger(__name__)
 
@@ -53,8 +54,8 @@ class FileProcessor:
         self,
         config: ProcessorConfig,
         *,
-        video_exts: Optional[list[str]] = None,
-        attachment_exts: Optional[list[str]] = None,
+        video_exts: list[str] | None = None,
+        attachment_exts: list[str] | None = None,
     ):
         self.config = config
         # 默认用常量兜底，方便单元测试；生产路径由调用方显式传入
@@ -71,7 +72,7 @@ class FileProcessor:
         path = Path(json_path)
         if not path.exists():
             raise FileNotFoundError(f"找不到 JSON 文件：{path}")
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             return json.load(f)
 
     # ---------- 规划 ----------
@@ -135,7 +136,7 @@ class FileProcessor:
             main_video = videos[0] if len(videos) == 1 else None
 
             # 主视频先规划，拿到它的目标路径
-            video_target: Optional[Path] = None
+            video_target: Path | None = None
             if main_video is not None:
                 code = main_video["extracted_code"]
                 target = self._target_path(Path(main_video["file_path"]), code)
@@ -184,7 +185,7 @@ class FileProcessor:
 
     def _resolve_conflict(
         self, target: Path, taken: set[str],
-    ) -> tuple[Optional[Path], str]:
+    ) -> tuple[Path | None, str]:
         if not target.exists() and str(target) not in taken:
             return target, "move"
 
@@ -207,8 +208,8 @@ class FileProcessor:
     def execute(
         self,
         planned: list[PlannedOperation],
-        progress: Optional[Callable[[int, int, PlannedOperation, str], None]] = None,
-        on_moved: Optional[Callable[[MoveOperation], None]] = None,
+        progress: Callable[[int, int, PlannedOperation, str], None] | None = None,
+        on_moved: Callable[[MoveOperation], None] | None = None,
     ) -> tuple[list[MoveOperation], int, int, int]:
         """返回 (操作记录, 成功数, 跳过数, 失败数)。
 
@@ -276,14 +277,14 @@ class FileProcessor:
 
     @staticmethod
     def load_operations(path: Path) -> list[MoveOperation]:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             data = json.load(f)
         return [MoveOperation(**d) for d in data]
 
     def undo(
         self,
         ops_file: Path,
-        progress: Optional[Callable[[MoveOperation, str], None]] = None,
+        progress: Callable[[MoveOperation, str], None] | None = None,
     ) -> tuple[int, int]:
         """按记录把文件搬回原位，返回 (成功数, 失败数)。
 

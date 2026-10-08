@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
-import json
 from dataclasses import dataclass, field
-from pathlib import Path
 
 
 def normalize_base_url(url: str) -> str:

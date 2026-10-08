@@ -111,10 +111,6 @@ def build_excel(
         for c, h in enumerate(headers):
             worksheet.write(0, c, h, header_fmt)
 
-        mismatch_fmt = workbook.add_format({
-            "valign": "vcenter", "font_color": "red", "bold": True,
-        })
-
         for i, rec in enumerate(records):
             row_idx = i + 1
 

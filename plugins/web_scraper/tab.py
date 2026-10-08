@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import sys
-import tkinter as tk
 from pathlib import Path
 from tkinter import ttk
 from typing import Optional

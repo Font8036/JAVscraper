@@ -9,7 +9,7 @@ import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable
 
 from .config import ScraperConfig
 
@@ -85,7 +85,7 @@ class CodeExtractor:
         ]
 
     # ---------- 提取 ----------
-    def extract(self, filename: str) -> Optional[str]:
+    def extract(self, filename: str) -> str | None:
         """返回标准代码；未识别返回 None。"""
         upper = filename.upper()
         return (
@@ -94,25 +94,25 @@ class CodeExtractor:
             or self._match_digital(upper)
         )
 
-    def _match_fc2(self, upper: str) -> Optional[str]:
+    def _match_fc2(self, upper: str) -> str | None:
         for pat in self._fc2_patterns:
             m = pat.search(upper)
             if m:
                 return f"FC2-{m.group(1)}"
         return None
 
-    def _match_alpha(self, upper: str) -> Optional[str]:
+    def _match_alpha(self, upper: str) -> str | None:
         # 快速预筛：不含任何前缀就跳过
         if not any(p in upper for p in self._prefix_lookup):
             return None
-        for prefix, pats in self._prefix_patterns.items():
+        for pats in self._prefix_patterns.values():
             for pat in pats:
                 m = pat.search(upper)
                 if m:
                     return f"{m.group(1)}-{m.group(2)}"
         return None
 
-    def _match_digital(self, upper: str) -> Optional[str]:
+    def _match_digital(self, upper: str) -> str | None:
         for pat in self._digital_patterns:
             m = pat.search(upper)
             if m:
@@ -128,13 +128,13 @@ class CodeExtractor:
 
     def is_attachment(self, filename: str) -> bool:
         return Path(filename).suffix.lower() in self._attachment_exts
-    
+
     def scan_directory(
         self,
         directory: str | Path,
-        recursive: Optional[bool] = None,
-        progress: Optional[Callable[[ScrapeResult], None]] = None,
-        on_total: Optional[Callable[[int], None]] = None,
+        recursive: bool | None = None,
+        progress: Callable[[ScrapeResult], None] | None = None,
+        on_total: Callable[[int], None] | None = None,
     ) -> list[ScrapeResult]:
         directory = Path(directory)
         if not directory.exists():

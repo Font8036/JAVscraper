@@ -1,16 +1,18 @@
 """关于对话框 + 检查更新。"""
 
 from __future__ import annotations
-import sys
+
 import json
+import sys
 import threading
 import tkinter as tk
 import urllib.request
 import webbrowser
 from pathlib import Path
 from tkinter import messagebox, ttk
-from .common import set_window_icon, center_and_show
+
 from .. import __version__
+from .common import center_and_show, set_window_icon
 
 _GITHUB_REPO = "Font8036/JAVscraper"
 _GITHUB_URL = f"https://github.com/{_GITHUB_REPO}"
@@ -106,7 +108,7 @@ def show_about(parent, plugins=None):
     icon_img = _load_about_icon(256)
     if icon_img is not None:
         icon_label = ttk.Label(frame, image=icon_img)
-        setattr(icon_label, "image", icon_img)   # 保持引用，防止被 GC 回收
+        icon_label.image = icon_img   # 保持引用，防止被 GC 回收
         icon_label.pack(pady=(0, 12))
 
     # ---------- 标题 ----------

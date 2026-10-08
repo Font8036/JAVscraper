@@ -131,6 +131,12 @@ ignore = [
     "E501",  # 行太长由 ruff format 处理
 ]
 
+[tool.ruff.lint.per-file-ignores]
+# 入口脚本必须先把项目根 / plugins 塞进 sys.path 再 import（详见文件里的注释），
+# 所以 E402 是结构上无法避免的；run_full.py 的 import 还按插件分组排列，
+# 好让 PyInstaller 静态分析不漏插件，因此也不按 isort 排序。
+"run_full.py" = ["E402", "I001"]
+
 [tool.pytest.ini_options]
 testpaths = ["test"]
 python_files = ["test_*.py"]

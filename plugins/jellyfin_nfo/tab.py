@@ -10,7 +10,6 @@ import tkinter as tk
 import traceback
 from pathlib import Path
 from tkinter import messagebox, ttk
-from typing import Optional
 
 from av_scraper.plugin_api import PluginContext
 from av_scraper.widgets import Column, ConfigForm, SortableTreeview

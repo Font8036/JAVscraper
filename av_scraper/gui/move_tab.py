@@ -9,7 +9,7 @@ import tkinter as tk
 from dataclasses import replace
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
-from typing import Any, Optional
+from typing import Any
 
 from ..paths import log_dir
 from ..processor import (
@@ -18,8 +18,8 @@ from ..processor import (
     find_target_collisions,
 )
 from ..texts import build_collision_message, move_status_text, undo_status_text
+from ..widgets import Column, HistoryPathInput, SortableTreeview
 from .common import QueueLogHandler
-from ..widgets import HistoryPathInput, Column, SortableTreeview
 
 _OPS_FILENAME = "move_operations.json"
 _LABEL_WIDTH = 10          # 左列标签的统一宽度，和配置页风格一致
@@ -40,7 +40,8 @@ class MoveTab(ttk.Frame):
 
     # ---------- 布局 ----------
     def _build(self) -> None:
-        row1 = ttk.Frame(self); row1.pack(fill="x", pady=(0, 2))
+        row1 = ttk.Frame(self)
+        row1.pack(fill="x", pady=(0, 2))
         ttk.Label(
             row1, text="输入 JSON:",
             width=_LABEL_WIDTH, anchor="e",
@@ -69,7 +70,8 @@ class MoveTab(ttk.Frame):
         )
         self.target_input.pack(fill="x", pady=2)
 
-        row3 = ttk.Frame(self); row3.pack(fill="x", pady=6)
+        row3 = ttk.Frame(self)
+        row3.pack(fill="x", pady=6)
         ttk.Button(row3, text="预览更改", command=self._on_preview).pack(side="left")
         ttk.Button(row3, text="执行移动", command=self._on_execute).pack(
             side="left", padx=4)
@@ -211,7 +213,7 @@ class MoveTab(ttk.Frame):
 
     def _preview_worker(self, json_path: str) -> None:
         try:
-            proc = self._make_processor() 
+            proc = self._make_processor()
             results = proc.load_results(json_path)
             planned = proc.plan(results)
             self._q.put(("planned", planned))
@@ -252,7 +254,7 @@ class MoveTab(ttk.Frame):
 
     def _execute_worker(self, planned: list[PlannedOperation]) -> None:
         try:
-            proc = self._make_processor() 
+            proc = self._make_processor()
 
             def on_progress(idx, total, op, status):
                 self._q.put(("progress", (idx, total, op, status)))
@@ -350,7 +352,7 @@ class MoveTab(ttk.Frame):
         selected = len(self.result_tree.get_selected())
         self.stats_var.set(f"共 {total} 个操作，已勾选 {selected} 个")
 
-    def _show_planned(self, planned: Optional[list[PlannedOperation]]) -> None:
+    def _show_planned(self, planned: list[PlannedOperation] | None) -> None:
         self._working = False
         if planned is None:
             self.stats_var.set("预览失败")
@@ -375,7 +377,7 @@ class MoveTab(ttk.Frame):
             parent=self,
         )
 
-    def _finish_move(self, payload: Optional[tuple[int, int, int]]) -> None:
+    def _finish_move(self, payload: tuple[int, int, int] | None) -> None:
         self._working = False
         self.app.set_status("就绪")
         if payload is None:
@@ -395,7 +397,7 @@ class MoveTab(ttk.Frame):
         else:
             messagebox.showinfo("移动完成", msg, parent=self)
 
-    def _finish_undo(self, payload: Optional[tuple[int, int]]) -> None:
+    def _finish_undo(self, payload: tuple[int, int] | None) -> None:
         self._working = False
         self.app.set_status("就绪")
         if payload is None:

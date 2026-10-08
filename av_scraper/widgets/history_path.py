@@ -20,11 +20,13 @@
 """
 
 from __future__ import annotations
-from .tooltip import LabelWithTip
+
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, ttk
-from typing import Callable, Optional
+from typing import Callable
+
+from .tooltip import LabelWithTip
 
 
 class HistoryPathInput(ttk.Frame):
@@ -34,8 +36,8 @@ class HistoryPathInput(ttk.Frame):
         label: str,
         *,
         kind: str = "dir",                # "dir" / "file" / "save"
-        filetypes: Optional[list] = None,  # kind="file"/"save" 时使用
-        tooltip: Optional[str] = None,          # ← 新增
+        filetypes: list | None = None,  # kind="file"/"save" 时使用
+        tooltip: str | None = None,          # ← 新增
         get_value: Callable[[], str] = lambda: "",
         set_value: Callable[[str], None] = lambda v: None,
         get_history: Callable[[], list[str]] = lambda: [],
@@ -43,7 +45,7 @@ class HistoryPathInput(ttk.Frame):
         get_limit: Callable[[], int] = lambda: 5,
         save: Callable[[], None] = lambda: None,
         commit_on_browse: bool = True,
-        on_change: Optional[Callable[[], None]] = None,
+        on_change: Callable[[], None] | None = None,
         label_width: int = 0,
     ):
         super().__init__(parent)

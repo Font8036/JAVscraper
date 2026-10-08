@@ -1,8 +1,16 @@
-"""GUI 入口：python -m av_scraper"""
+"""入口：不带参数启动图形界面，带参数走命令行。
+
+    python -m av_scraper                    图形界面
+    python -m av_scraper scan D:\\videos     命令行（见 cli.py）
+    python -m av_scraper --help             命令行用法
+
+这样既保住"双击就用"的老路径，又让同一个包能在终端里批量跑。
+"""
 
 from __future__ import annotations
 
 import sys
+from collections.abc import Sequence
 
 
 def _enable_dpi_awareness() -> None:
@@ -32,14 +40,26 @@ def _enable_dpi_awareness() -> None:
         pass
 
 
-def main() -> None:
-    _enable_dpi_awareness()
-
+def launch_gui() -> None:
+    """启动图形界面。Tk 相关的东西都在这条路径上，命令行不会碰。"""
     from .gui.app import App
     from .paths import config_path
 
     App(config_path()).mainloop()
 
 
+def main(argv: Sequence[str] | None = None) -> int:
+    """返回进程退出码：0 成功，非 0 见 cli.py 的 EXIT_* 。"""
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if not argv:
+        # 双击 exe / python run.py：还是老的图形界面
+        _enable_dpi_awareness()
+        launch_gui()
+        return 0
+
+    from .cli import run
+    return run(argv)
+
+
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

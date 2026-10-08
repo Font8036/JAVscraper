@@ -5,5 +5,7 @@
 3. 点击右下角「配置」按钮修改路径
 4. 不要单独拷贝 exe，整个文件夹要一起复制
 5. 卸载只需要删除本目录下相关文件即可，本工具不会在其他目录创建文件，除非用户指定。
+6. 不想开界面时可以用命令行模式：JAVscraper_cli.exe scan <目录> / move / undo，
+   用法见 JAVscraper_cli.exe --help，或 README 的「命令行模式（CLI）」一节。
 
 更多说明见 https://github.com/Font8036/JAVscraper 的README.md

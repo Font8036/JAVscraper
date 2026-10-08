@@ -3,8 +3,8 @@
 覆盖四块：
   1. load_results  —— 读扫描结果 JSON
   2. plan          —— 目标路径规划、冲突处理、"跟随视频命名"
-  3. execute       —— 实际移动 / 覆盖 / 跳过 / 失败统计与进度回调
-  4. 记录与撤回     —— save_operations / load_operations / undo
+  3. execute       —— 实际移动 / 覆盖 / 跳过 / 失败统计与进度回调（progress / on_moved）
+  4. 记录与撤回     —— save_operations / load_operations / undo（撤回可重复执行）
 
 临时目录的说明同 test_scraper.py：不用 pytest 的 tmp_path（它以 0o700 建目录，
 在部分受限环境下连列目录都会被拒），改用默认权限自建。
@@ -470,6 +470,25 @@ def test_execute_progress_sequence(dirs):
     assert seen == [(1, 2, "ok"), (2, 2, "skip")]
 
 
+def test_execute_on_moved_reports_every_successful_move(dirs):
+    """每成功移动一个就回调一次：命令行靠它在中途 Ctrl+C 时保住已移动部分的记录。"""
+    src, dst, _ = dirs
+    a = make_file(src / "ABP-123.mp4")
+    b = make_file(src / "SSIS-456.mp4")
+    gone = src / "MIDE-789.mp4"                             # 计划里有，文件已经不在
+    proc = make_processor(dst)
+    planned = proc.plan([
+        result(a, "ABP-123"), result(b, "SSIS-456"), result(gone, "MIDE-789"),
+    ])
+    seen: list[MoveOperation] = []
+
+    ops, success, _skipped, failed = proc.execute(planned, on_moved=seen.append)
+
+    assert (success, failed) == (2, 1)
+    assert seen == ops                                      # 回调内容与返回值一致
+    assert [o.original_filename for o in seen] == ["ABP-123.mp4", "SSIS-456.mp4"]
+
+
 def test_execute_empty_plan(dirs):
     _, dst, _ = dirs
     assert make_processor(dst).execute([]) == ([], 0, 0, 0)
@@ -584,3 +603,45 @@ def test_undo_skips_when_original_path_is_occupied(dirs):
     assert a.read_text(encoding="utf-8") == "someone else wrote here"       # 没被覆盖
     assert (dst / "ABP-123" / "ABP-123.mp4").read_text(encoding="utf-8") == "moved content"
     assert ops_file.exists()                                # 记录保留，处理完冲突可重试
+
+
+def test_undo_counts_already_restored_file_as_done(dirs):
+    """文件已经在原位（上一次撤回被中断）：算完成，不碰它，记录才能收尾删掉。"""
+    src, dst, base = dirs
+    a = make_file(src / "ABP-123.mp4", "aaa")
+    proc = make_processor(dst)
+    ops, *_ = proc.execute(proc.plan([result(a, "ABP-123")]))
+    ops_file = base / "ops.json"
+    proc.save_operations(ops, ops_file)
+    shutil.move(str(dst / "ABP-123" / "ABP-123.mp4"), str(a))   # 用户/上次中断搬回去了
+
+    seen: list[str] = []
+    success, failed = proc.undo(ops_file, progress=lambda op, s: seen.append(s))
+
+    assert (success, failed) == (1, 0)
+    assert seen == ["already"]
+    assert a.read_text(encoding="utf-8") == "aaa"
+    assert not ops_file.exists()                            # 没有失败 → 记录收尾删掉
+
+
+def test_undo_can_be_retried_after_partial_failure(dirs):
+    """先失败一次的记录，补好现场后再撤回一次就能收尾（撤回是幂等的）。"""
+    src, dst, base = dirs
+    a = make_file(src / "ABP-123.mp4", "aaa")
+    b = make_file(src / "SSIS-456.mp4", "bbb")
+    proc = make_processor(dst)
+    ops, *_ = proc.execute(proc.plan([result(a, "ABP-123"), result(b, "SSIS-456")]))
+    ops_file = base / "ops.json"
+    proc.save_operations(ops, ops_file)
+    moved_b = dst / "SSIS-456" / "SSIS-456.mp4"
+    moved_b.unlink()                                        # b 在目标位置不见了
+
+    assert proc.undo(ops_file) == (1, 1)
+    assert ops_file.exists()
+
+    make_file(moved_b, "bbb")                               # b 又回来了
+
+    assert proc.undo(ops_file) == (2, 0)                    # a 走 already，b 真的搬回去
+    assert a.read_text(encoding="utf-8") == "aaa"
+    assert b.read_text(encoding="utf-8") == "bbb"
+    assert not ops_file.exists()

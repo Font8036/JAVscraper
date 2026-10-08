@@ -50,4 +50,4 @@ import jellyfin_nfo.organizer               # noqa: F401
 from av_scraper.__main__ import main
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

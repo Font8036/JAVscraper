@@ -208,6 +208,7 @@ class FileProcessor:
         self,
         planned: list[PlannedOperation],
         progress: Optional[Callable[[int, int, PlannedOperation, str], None]] = None,
+        on_moved: Optional[Callable[[MoveOperation], None]] = None,
     ) -> tuple[list[MoveOperation], int, int, int]:
         """返回 (操作记录, 成功数, 跳过数, 失败数)。
 
@@ -216,6 +217,9 @@ class FileProcessor:
           - total: 总数
           - op:    当前操作
           - status: "ok" / "skip" / "missing" / "error:<msg>"
+
+        on_moved(op)：每成功移动一个文件就回调一次。给"边移动边落盘记录"用——
+        命令行里中途 Ctrl+C 时，已经移动的文件仍然留在记录里，可以撤回。
         """
         ops: list[MoveOperation] = []
         success = skipped = failed = 0
@@ -247,14 +251,17 @@ class FileProcessor:
                 continue
 
             code = p.dst.parent.name if self.config.move_to_extracted_folder else ""
-            ops.append(MoveOperation(
+            moved = MoveOperation(
                 original_path=str(p.src),
                 moved_to=str(p.dst),
                 original_filename=p.src.name,
                 target_filename=p.dst.name,
                 extracted_code=code,
-            ))
+            )
+            ops.append(moved)
             success += 1
+            if on_moved is not None:
+                on_moved(moved)
             if progress:
                 progress(idx, total, p, "ok")
 
@@ -278,6 +285,11 @@ class FileProcessor:
         ops_file: Path,
         progress: Optional[Callable[[MoveOperation, str], None]] = None,
     ) -> tuple[int, int]:
+        """按记录把文件搬回原位，返回 (成功数, 失败数)。
+
+        可以重复执行：已经搬回去的文件第二次会被认成 "already" 并计入成功，
+        所以上一次撤回被 Ctrl+C 打断后，直接再跑一次就行。
+        """
         ops = self.load_operations(ops_file)
         success = failed = 0
 
@@ -286,9 +298,16 @@ class FileProcessor:
             dst = Path(op.original_path)
 
             if not src.exists():
-                failed += 1
-                if progress:
-                    progress(op, "missing")
+                if dst.exists():
+                    # 已经撤回过了（上次撤回被打断、或用户自己搬了回来）：
+                    # 目标位置就是它该在的地方，视为完成，不碰任何文件
+                    success += 1
+                    if progress:
+                        progress(op, "already")
+                else:
+                    failed += 1
+                    if progress:
+                        progress(op, "missing")
                 continue
 
             if dst.exists():

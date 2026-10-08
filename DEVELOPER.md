@@ -16,6 +16,8 @@
   - [fileio.py](#fileiopy)
   - [config.py](#configpy)
   - [paths.py](#pathspy)
+  - [cli.py](#clipy)
+  - [texts.py](#textspy)
 - [Widgets 组件库](#widgets-组件库)
   - [ConfigForm](#configform)
   - [SortableTreeview](#sortabletreeview)
@@ -35,6 +37,7 @@
 - [构建与分发](#构建与分发)
   - [核心版](#核心版)
   - [完整版](#完整版)
+  - [命令行版（控制台）](#命令行版控制台)
 - [测试](#测试)
 - [扩展点](#扩展点)
 - [已知限制](#已知限制)
@@ -65,8 +68,10 @@ JAVscraper/
 ├── .vscode/
 │   └── settings.json               # 需将 "plugins" 加入 analysis.extraPaths
 │
-├── run.py                          # 核心版入口
+├── run.py                          # 核心版入口（不带参数=图形界面，带参数=命令行）
 ├── run_full.py                     # 完整版入口（内置所有插件）
+├── run_cli.py                      # 控制台版入口（只打命令行，不含 Tk）
+├── JAVscraper_cli_v0.4.5_win64.spec  # 控制台版打包配置（产物 JAVscraper_cli.exe）
 ├── 清除缓存.bat                     # 递归清理 __pycache__
 │
 ├── config.json                     # 核心配置，首次运行自动生成
@@ -114,15 +119,20 @@ JAVscraper/
 │       └── tab.py                  # 兼作插件与配置页提供者
 │
 ├── test/                           # 测试与生成脚本
+│   ├── conftest.py                 # 共用夹具（真实文件占用 / 可写临时目录）
 │   ├── gen_test_files.py           # 造一批测试文件，用来验证扫描
 │   ├── test_scraper.py             # 番号提取 / 扫描的单元测试（pytest）
 │   ├── test_processor.py           # 移动 / 撤回的单元测试（pytest）
 │   ├── test_config.py              # 配置读写与"改了要提示"的单元测试
-│   └── test_gui_text.py            # GUI 文案函数（提醒 / 日志）的单元测试
+│   ├── test_gui_text.py            # 提醒 / 日志文案函数的单元测试
+│   ├── test_fileio.py              # 原子写 / 占用识别 / 备选文件名的单元测试
+│   ├── test_save_guard.py          # 保存失败三按钮处置流程的单元测试
+│   ├── test_plugin_poll.py         # 插件轮询（重入 / 异常后仍能继续）的单元测试
+│   └── test_cli.py                 # 命令行模式（含 GBK 控制台安全）的单元测试
 │
 └── av_scraper/                     # 主包
     ├── __init__.py                 # __version__
-    ├── __main__.py                 # python -m av_scraper 入口
+    ├── __main__.py                 # 入口分发（无参数=GUI，有参数=CLI）
     ├── paths.py                    # 定位 config/log/plugins
     ├── defaults.py                 # 默认前缀与扩展名
     ├── config.py                   # AppConfig / ScraperConfig / ProcessorConfig
@@ -130,6 +140,8 @@ JAVscraper/
     ├── processor.py                # 文件移动 / 撤回
     ├── reports.py                  # JSON / TXT / CSV 导出
     ├── fileio.py                   # 写文件的公共处理（原子替换 / 占用识别）
+    ├── texts.py                    # 窗口与命令行共用的文案
+    ├── cli.py                      # 命令行模式（scan / move / undo / config）
     ├── plugin_api.py               # 插件接口定义（PluginContext）
     ├── plugin_loader.py            # 插件发现与加载
     ├── widgets/                    # 可复用 UI 组件
@@ -400,6 +412,41 @@ def log_dir() -> Path: ...
 ```
 
 **关键**：源码运行时返回**项目根目录**（`av_scraper/paths.py` 的上两级），与 cwd 无关。打包后返回 exe 同级。
+
+---
+
+### cli.py
+
+**职责**：命令行模式（`scan` / `move` / `undo` / `config`）。
+
+**它不是"另一套逻辑"**，而是和 GUI 平级的第二个前端：同一个 `CodeExtractor`、同一个 `FileProcessor`、同一份 `config.json`、同一份移动记录（`log/move_operations.json`）。所以命令行移的文件能回窗口点「撤回移动」，界面移的也能用命令撤。
+
+**分层**（为了不开终端也能测）：
+
+| 层 | 内容 |
+|---|---|
+| 纯函数 | `format_scan_summary` / `format_plan_preview` / `format_undo_preview` / `format_config` / `apply_overrides` / `filter_planned` / `resolve_report_paths`——只拼字符串、算路径，不碰 IO |
+| `Console` | 唯一的输入输出口：`out_line`（给人看，`-q` 时闭嘴）/ `err_line`（错误，永远打印）/ `data_line`（`--json -` 的数据出口）/ `confirm`。测试注入 `StringIO` + 假的 `ask` + `interactive=False` 就能全流程跑 |
+| `cmd_*` | 每个子命令一个函数，签名统一 `(args, ui) -> int`，返回值就是进程退出码 |
+
+**几条硬约定**：
+
+- **不 import tkinter**。`av_scraper/__main__.py` 只在不带参数时才 import `gui`；控制台版 exe（`run_cli.py`）根本不 import `gui`，所以产物里没有 Tk。
+- **输出只用 GBK 能编码的字符**。Windows 中文控制台是 cp936，`✓` `✗` `↳` `⚠` 编不出来会直接抛 `UnicodeEncodeError`（实测），所以命令行一律用文字表达（`→` `「」` `……` 是安全的）。另外 `run()` 会给 stdout/stderr 加 `errors="replace"`，防止文件名里的生僻字把整条命令搞崩。`test_cli.py` 有一条用例把三种输出的每个字符都 `encode("gbk")` 跑一遍。
+- **危险动作默认先预览再确认**：`--dry-run` 不动文件；真动文件前要回 `y`，非交互环境（stdin 不是 tty）必须显式 `--yes`，否则以退出码 2 直接拒绝。
+- **提示语写 stderr、数据写 stdout**。`--json -` 时连摘要都挪到 stderr，管道里拿到的就是纯 JSON（可以直接喂给别的工具）。
+- **边移动边落盘记录**：`execute(on_moved=...)` 每成功一个回调一次，命令行每 200 个写一次记录。中途 Ctrl+C 时已经移动的文件仍然在记录里，可以 `undo`——这是"命令行比界面更容易被打断"换来的要求。
+- 命令行**不写配置**（`config` 是只读子命令）。目标目录的缺省值取 `target_directory`，为空则取 `recent_target_dirs[0]`，与界面预填的逻辑保持一致。
+
+### texts.py
+
+**职责**：窗口与命令行共用的文案，只拼字符串、不依赖 tkinter。
+
+- `build_collision_message(collisions, tail=...)`：预览阶段的"批内重名"提醒；`tail` 用来换补救方式（界面说"勾选"，命令行说 `--only`）。
+- `move_status_text(op, status)` / `undo_status_text(op, status)`：移动 / 撤回过程中值得写进日志的一行，正常完成返回空串。
+- `short_path(path)`：`上级目录/文件名`，用来区分同名文件。
+
+`gui/move_tab.py` 只是 import 它们，于是 **GUI 和 CLI 对同一件事说的是同一句话**（`test_gui_text.py` 和 `test_cli.py` 分别从两侧验证）。
 
 ---
 
@@ -883,6 +930,26 @@ pyinstaller -D -w -n JAVscraper_full_win64 ^
 | `--collect-all playwright` | 收集 Playwright 的 Node 驱动和所有子模块 |
 | `--collect-submodules web_scraper` | 递归收集 `web_scraper` 包下所有子模块，**加新源时不用改打包命令** |
 
+### 命令行版（控制台）
+
+```cmd
+:: 用 spec（本地文件，和另外两个 spec 一样不进版本库）
+pyinstaller JAVscraper_cli_v0.4.5_win64.spec
+
+:: 等价的一条命令，spec 丢了也能照着重建
+pyinstaller -F -c -n JAVscraper_cli --icon=assets/icon.ico --paths . --clean run_cli.py
+```
+
+产物：`dist/JAVscraper_cli.exe`（约 15 MB，和核心版差不多）。
+
+| 参数 | 作用 |
+|---|---|
+| `console=True` | **和另外两个 exe 唯一的实质区别**。`-w` 的窗口子系统没有 stdout，在 cmd 里跑什么都看不到，所以命令行版必须是控制台子系统 |
+| 不 `--add-data` | 命令行不读 `assets/`，也不用插件 |
+| 入口是 `run_cli.py` | 它只 import `av_scraper.cli`，不 import `gui`，所以打出来的包里没有 Tk |
+
+产物名故意不带版本号：命令行工具要反复敲、要加进 PATH，版本用 `JAVscraper_cli.exe --version` 看。
+
 ### 分发
 
 - 核心版：直接发 `JAVscraper_core_win64.exe`；
@@ -973,6 +1040,8 @@ python test/gen_test_files.py --clean
 - [ ] 表格/日志高度：改完立即生效于所有 Tab
 - [ ] 插件加载：完整版能看到插件标签页，核心版看不到
 - [ ] 插件错误处理：手动删掉某个插件的依赖，应显示错误标签页而非崩溃
+- [ ] 命令行中文显示：在 cmd（cp936）里跑 `JAVscraper_cli.exe --help` 和 `scan <目录>`，中文应正常显示，不能是乱码、更不能崩
+- [ ] 命令行与界面共用记录：命令行 `move ... -y` 之后，回界面点「撤回移动」应能把文件还原
 
 ### 单元测试
 
@@ -982,11 +1051,13 @@ python -m pytest test/test_scraper.py -q   # 只跑番号提取
 ```
 
 - `test/test_scraper.py`：`CodeExtractor` 的提取规则与边界、文件分类、`scan_directory`
-- `test/test_processor.py`：目标路径规划与三种冲突处理、"跟随视频命名"、移动执行的统计与进度回调、移动记录的读写与撤回
+- `test/test_processor.py`：目标路径规划与三种冲突处理、"跟随视频命名"、移动执行的统计与进度回调（`progress` / `on_moved`）、移动记录的读写与撤回（含"撤回可重复执行"）
 - `test/test_config.py`：配置读写、旧字段迁移、非法选项回退，以及"程序改过配置要报告出来"
 - `test/test_gui_text.py`：预览重名提醒与失败日志的文案（纯字符串函数，不建窗口）
 - `test/test_fileio.py`：临时文件写入、原子替换、错误分类、时间戳备选名
 - `test/test_save_guard.py`：占用处置状态机（重试 / 换名 / 另存为 / 关窗口），全部注入假弹窗
+- `test/test_plugin_poll.py`：插件轮询的顺序处理、重入拦截、异常后仍能继续
+- `test/test_cli.py`：真建文件、真移文件的命令行测试；重点是"不动文件的预览"、"非交互必须 `--yes`"、"`--json -` 只吐 JSON"、"输出能用 GBK 编码"
 - `test/conftest.py`：`locker` 夹具用 ctypes 的 `dwShareMode=0` 造**真实的文件占用**，`work_dir` 提供临时目录
 
 用例自带夹具、不依赖 `tmp_path`，所以在写入受限的环境里也能跑（那种环境可再加 `-p no:cacheprovider` 跳过 pytest 缓存）。
@@ -1038,7 +1109,7 @@ ext = CodeExtractor(cfg.scraper)
 results = ext.scan_directory("D:/videos")
 ```
 
-接入 FastAPI、PySide6、Rich CLI 都可以。
+接入 FastAPI、PySide6、Rich CLI 都可以。`cli.py` 就是照这个思路做的现成例子：命令行前端与 GUI 平级，共用同一套核心、同一份配置、同一份移动记录。
 
 ---
 
@@ -1052,6 +1123,7 @@ results = ext.scan_directory("D:/videos")
 - **`plugin_loader` 依赖 `importlib.import_module` 检查依赖**，不读 `importlib.metadata`。这意味着无法做版本约束（如 `openpyxl>=3.1`），只能判断"有没有"。
 - **`web_scraper` 的启动慢是正常的**。它加载了 Playwright，首屏会慢 1~2 秒。这是完整版体积和功能换来的。
 - **文件被占用只能由用户处置**。Excel / WPS 开着报告时，写入和替换都会失败（Windows 共享模式决定的，`os.replace` 也不例外），程序只能弹窗让用户选择重试 / 换文件名 / 另存为。见 `fileio.py` 与 `widgets/save_guard.py`。
+- **命令行输出能用的字符受限**。Windows 中文控制台是 cp936，`✓` `✗` `↳` `⚠` 编不出来（会抛 `UnicodeEncodeError`），命令行一律用文字表达，另加 `errors="replace"` 兜底。写 CLI 文案时不要用这四个符号。
 
 ---
 

@@ -19,7 +19,8 @@ def make_run_directory(base: str | Path) -> Path:
     return run_dir
 
 
-def _to_dict(r: ScrapeResult) -> dict:
+def to_dict(r: ScrapeResult) -> dict:
+    """扫描结果的字典形式。命令行 ``scan --json -`` 也用这个，保证两边字段一致。"""
     return {
         "file_path": r.file_path,
         "filename": r.filename,
@@ -33,7 +34,7 @@ def _to_dict(r: ScrapeResult) -> dict:
 
 def save_json(results: list[ScrapeResult], path: Path) -> None:
     # 先写临时文件再替换：写到一半崩了也不会留下半截 JSON
-    data = json.dumps([_to_dict(r) for r in results], ensure_ascii=False, indent=2)
+    data = json.dumps([to_dict(r) for r in results], ensure_ascii=False, indent=2)
     write_via_temp(path, lambda tmp: tmp.write_text(data, encoding="utf-8"))
 
 

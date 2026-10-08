@@ -6,6 +6,8 @@
 
 一个 Windows 桌面小工具，用于**从文件名中提取标准代码，并按代码批量移动、重命名文件**。所有操作都在图形界面完成，不需要懂编程，也不需要打开命令行。
 
+需要写进脚本、计划任务，或者干脆不想开界面时，核心的**扫描**和**移动**也可以用[命令行](#命令行模式cli)批量跑。
+
 完整版还额外提供**网页信息抓取**和**Jellyfin 元数据生成**扩展功能，全部通过图形界面操作。
 
 ---
@@ -22,6 +24,7 @@
     - [JavDB 信息](#javdb-信息)
     - [字幕猫](#字幕猫)
   - [④ Jellyfin NFO（完整版）](#-jellyfin-nfo完整版)
+- [命令行模式（CLI）](#命令行模式cli)
 - [配置窗口](#配置窗口)
 - [常见问题](#常见问题)
 - [重要提醒](#重要提醒)
@@ -384,6 +387,118 @@ JavDB 信息   字幕猫
 - 本功能只处理**嵌入单元格的封面图**（WPS 的「嵌入单元格图片」格式，或 Excel 365 的「置于单元格中」）。普通"插入图片"（浮动图片）提取不了；
 - 电影文件夹名必须与 Excel 里的番号一致，否则会显示"未匹配"；
 - 生成的 NFO 是 UTF-8 编码的 XML，可以直接用记事本打开查看。
+
+---
+
+## 命令行模式（CLI）
+
+**扫描**和**移动**这两件事可以完全不开界面，用命令跑。爬虫和 Jellyfin NFO 目前只在图形界面里提供。
+
+命令行版和界面版**是同一个程序、共用同一份配置**，放在同一个目录里就行：
+
+```
+JAVscraper_core_v0.4.5_win64.exe   ← 双击，打开界面
+JAVscraper_cli.exe                 ← 在 cmd / PowerShell 里用
+config.json                        ← 两者共用
+log\                               ← 两者的输出都在这里
+```
+
+> 用 pip 安装的也可以：把下面的 `JAVscraper_cli.exe` 换成 `av-scraper` 即可。
+> 命令行版 exe 不带版本号，方便加进 PATH 或者反复敲。
+
+### 扫描
+
+```cmd
+:: 扫描 D:\videos，结果自动存进 log\<时间戳>\（JSON + 文本报告 + CSV）
+JAVscraper_cli.exe scan D:\videos
+
+:: 只在屏幕上看看结果，不写任何文件
+JAVscraper_cli.exe scan D:\videos --no-reports
+
+:: 把 JSON 交给下一条命令：- 表示写到标准输出（摘要仍然打在屏幕上，走 stderr）
+JAVscraper_cli.exe scan D:\videos --json - > results.json
+```
+
+输出长这样：
+
+```
+扫描目录    D:\videos
+文件总数    5
+直接提取    3
+父目录继承  0
+保持原样    2
+提取率      60.0%
+
+未识别（2）：
+  - random.mkv
+  - 随手拍的一段视频.mp4
+```
+
+未识别的文件不会被动，认出来的才参与下一步。
+
+### 移动
+
+**先 `--dry-run` 看一遍**，它就是界面里的「预览更改」：
+
+```cmd
+:: 预览：只告诉你会发生什么，一个文件都不动
+JAVscraper_cli.exe move results.json -t E:\sorted --dry-run
+
+:: 确认没问题再执行（-y = 不再问一次）
+JAVscraper_cli.exe move results.json -t E:\sorted -y
+
+:: 只处理其中几个番号（相当于界面里勾选几行）
+JAVscraper_cli.exe move results.json -t E:\sorted -y --only ABP-123,SSIS-456
+
+:: 目标已有同名文件时改成覆盖（默认是「重命名」，加 _01）
+JAVscraper_cli.exe move results.json -t E:\sorted -y --on-conflict overwrite
+```
+
+| 参数 | 说明 |
+| --- | --- |
+| `-t, --target DIR` | 目标目录。不写就用配置里的（在界面上选过一次就会记住） |
+| `--dry-run` | 只预览，不动文件 |
+| `-y, --yes` | 不再确认。**在脚本或计划任务里必须加**，否则会拒绝执行 |
+| `--only 番号[,番号]` | 只处理这些番号 |
+| `--folder` / `--no-folder` | 是否按番号建子文件夹（默认跟配置） |
+| `--video-naming` | `keep` 保留原文件名 / `code` 按番号命名 |
+| `--attachment-naming` | `keep` / `code` / `follow`（跟随同目录视频） |
+| `--on-conflict` | `skip` 跳过 / `overwrite` 覆盖 / `rename` 加 `_01`（默认跟配置） |
+
+### 撤回
+
+命令行移的文件，可以回界面点「撤回移动」；界面移的也能用命令撤。两边共用 `log\move_operations.json`（只保留最近一次）。
+
+```cmd
+JAVscraper_cli.exe undo --dry-run    :: 先看看会撤回什么
+JAVscraper_cli.exe undo -y           :: 真的撤回
+```
+
+**撤回可以重复执行**：中途按了 Ctrl+C，或者有几个因为原位置被占用没撤回去，处理好之后再跑一次 `undo` 就会接着撤，已经撤回去的自动跳过。
+
+### 看当前配置
+
+```cmd
+JAVscraper_cli.exe config          :: 列出当前生效的配置
+JAVscraper_cli.exe config --path   :: 只打印配置文件在哪
+```
+
+命令行**不会修改配置**，要改配置请用界面的「配置」窗口。
+
+### 退出码
+
+| 退出码 | 含义 |
+| --- | --- |
+| 0 | 成功（包括"没有需要处理的文件"） |
+| 1 | 有文件没处理成功 / 被中断 / 你自己取消了 |
+| 2 | 参数用法问题（包括非交互环境里少了 `--yes`） |
+
+每个子命令都可以加 `-v` 看每个文件的明细，或者 `-q` 只在出错时出声。完整的参数说明：
+
+```cmd
+JAVscraper_cli.exe --help
+JAVscraper_cli.exe move --help
+```
 
 ---
 

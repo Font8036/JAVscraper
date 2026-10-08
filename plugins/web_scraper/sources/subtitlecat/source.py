@@ -90,6 +90,7 @@ class SubtitleCatSource:
     def build_tab(self, parent) -> ttk.Frame:
         root = ttk.Frame(parent, padding=8)
         self._root = root
+        self._polling = False        # 挡住处置弹窗（嵌套事件循环）期间的重入
         self._build(root)
         root.after(80, self._poll)
         return root
@@ -491,9 +492,17 @@ class SubtitleCatSource:
     # 队列消费
     # ============================================================
     def _poll(self) -> None:
+        # 处置弹窗（save_guard）会开启嵌套事件循环，after 回调会在弹窗期间再次进来；
+        # 这里挡住重入，避免总结弹窗叠在处置弹窗上、还抢先说出用户没决定的状态
+        if self._polling:
+            return
+        self._polling = True
         try:
             while True:
-                kind, payload = self._queue.get_nowait()
+                try:
+                    kind, payload = self._queue.get_nowait()
+                except queue.Empty:
+                    break
                 if kind == "log":
                     self._append_log(payload)
                 elif kind == "progress":
@@ -502,10 +511,11 @@ class SubtitleCatSource:
                     self._finish_fetch(payload)
                 elif kind == "save_failed":
                     self._resolve_save_failure(*payload)
-        except queue.Empty:
-            pass
-        if self._root is not None:
-            self._root.after(80, self._poll)
+        finally:
+            # 用 finally 保证即使某个处理函数抛错，轮询也不会永久停掉
+            self._polling = False
+            if self._root is not None:
+                self._root.after(80, self._poll)
 
     def _update_row(self, idx: int, record: dict, status: str) -> None:
         row = self._row_by_idx.get(idx)

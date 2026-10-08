@@ -25,6 +25,11 @@ _GENERIC_READ = 0x80000000
 _OPEN_EXISTING = 3
 _INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
 
+# 插件以 plugins/ 为源码根导入，和 run_full.py、plugin_loader 的做法一致
+_PLUGINS_ROOT = Path(__file__).resolve().parent.parent / "plugins"
+if str(_PLUGINS_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PLUGINS_ROOT))
+
 if _IS_WINDOWS:
     _k32 = ctypes.WinDLL("kernel32", use_last_error=True)
     _k32.CreateFileW.restype = wintypes.HANDLE

@@ -103,7 +103,9 @@ class ScanTab(ttk.Frame):
                 Column("filename", "文件名", 480,
                        display=lambda r: r.filename,
                        sort=lambda r: r.filename.lower(),
-                       stretch=True),
+                       stretch=True,
+                       editable=True,                       # ← 新增
+                       on_edit=self._on_filename_edited),   # ← 新增),
                 Column("code", "提取码", 200,
                        display=lambda r: r.extracted_code,
                        sort=lambda r: r.extracted_code.lower(),
@@ -286,6 +288,92 @@ class ScanTab(ttk.Frame):
         self._append_log(f"[修正] {r.filename}：{old} → {new_value}")
         self._save_corrected_results()
         return True
+
+    # ---------- 文件名重命名 ----------
+    _INVALID_CHARS = set('\\/:*?"<>|')
+
+    def _on_filename_edited(self, r: ScrapeResult, new_name: str) -> bool:
+        """用户双击文件名单元格，直接重命名硬盘上的文件。"""
+        new_name = new_name.strip()
+        if not new_name:
+            return False
+
+        old_path = Path(r.file_path)
+        if new_name == old_path.name:
+            return False
+
+        # 1. 非法字符
+        bad = sorted({c for c in new_name if c in self._INVALID_CHARS})
+        if bad:
+            messagebox.showerror(
+                "重命名失败",
+                "文件名不能包含以下字符：\n" + " ".join(bad),
+            )
+            return False
+
+        # 2. 目标是否被占用（忽略纯大小写改动，Windows 视为同一文件）
+        new_path = old_path.parent / new_name
+        if new_path.exists():
+            try:
+                same = old_path.samefile(new_path)
+            except OSError:
+                same = False
+            if not same:
+                messagebox.showerror(
+                    "重命名失败", f"目标文件名已存在：\n{new_name}")
+                return False
+
+        # 3. 源文件是否还在
+        if not old_path.exists():
+            messagebox.showerror(
+                "重命名失败", f"原始文件不存在：\n{old_path}")
+            return False
+
+        # 4. 执行
+        try:
+            old_path.rename(new_path)
+        except OSError as e:
+            messagebox.showerror("重命名失败", f"无法重命名：\n{e}")
+            return False
+
+        r.file_path = str(new_path)
+        r.filename = new_name
+        self._append_log(f"[重命名] {old_path.name} → {new_name}")
+
+        # 5. 没被手动改过提取码时，重新解析
+        if not r.manually_edited:
+            self._rescan_single(r, new_path)
+            self._append_log(f"[重解析] {new_name} → {r.extracted_code}")
+
+        self._save_corrected_results()
+        return True
+
+    def _rescan_single(self, r: ScrapeResult, path: Path) -> None:
+        """对单个文件重跑提取逻辑，更新 ScrapeResult 的字段。
+
+        与 scan_directory 里的规则保持一致：
+        文件名匹配失败 → 尝试父目录名继承。
+        """
+        cfg = self.app.app_config.scraper
+        try:
+            extractor = CodeExtractor(cfg)
+        except Exception:
+            logging.getLogger("av_scraper.scraper").exception("重建提取器失败")
+            return
+
+        code = extractor.extract(path.name)
+        inherited = False
+        if code is None and cfg.inherit_from_parent:
+            parent_name = path.parent.name
+            if parent_name:
+                parent_code = extractor.extract(parent_name)
+                if parent_code is not None:
+                    code = parent_code
+                    inherited = True
+
+        r.extracted_code = code or path.name
+        r.status = "extracted" if code else "original"
+        r.inherited = inherited
 
     def _save_corrected_results(self) -> None:
         """把修正写回本次扫描生成的 JSON，供移动页重新加载。"""

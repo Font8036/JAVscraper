@@ -1,0 +1,35 @@
+使用说明（命令行版）
+=====================
+
+⚠ 本版本仅面向熟悉命令行的用户。
+   不熟悉命令行的请使用 JAVscraper_core（核心版）或 JAVscraper_full（完整版）。
+   它们双击即可运行，所有功能都有图形界面。
+
+本程序为命令行工具，不带图形界面，只能通过 cmd / PowerShell 使用。
+爬虫和 Jellyfin NFO 两个功能仅在图形界面版本中提供。
+
+1. 放到任意目录即可运行，无需安装。
+   首次运行会在同级目录生成 config.json 等配置文件和 log/ 日志目录。
+2. 用法：JAVscraper_cli.exe <子命令> [参数]
+   常用子命令：
+     scan    扫描目录、提取番号、导出结果
+     move    按扫描结果移动 / 重命名文件
+     undo    撤回上一次移动
+     config  查看当前配置（只读）
+3. 会修改文件的操作默认先预览、再询问确认。
+   在脚本或计划任务里必须加 --yes，否则会拒绝执行。
+   不确定时先加 --dry-run 看一眼再动手。
+4. 配置文件与图形界面版本共用（config.json、log/）。
+   命令行只读配置，要改配置请用图形界面版本的「配置」窗口。
+5. 退出码：0 成功；1 有文件没处理成功 / 被中断 / 被取消；2 参数用法问题。
+   可以在脚本里用 %ERRORLEVEL% 判断。
+
+示例：
+   JAVscraper_cli.exe scan D:\videos --no-reports
+   JAVscraper_cli.exe move results.json -t E:\sorted --dry-run
+   JAVscraper_cli.exe move results.json -t E:\sorted -y
+   JAVscraper_cli.exe undo -y
+   JAVscraper_cli.exe --help
+   JAVscraper_cli.exe move --help
+
+更多说明见 https://github.com/Font8036/JAVscraper 的 README.md「命令行模式（CLI）」一节。

@@ -1,6 +1,6 @@
 """命令行的顶层入口（给控制台版 exe 用）。
 
-    pyinstaller -F -c -n JAVscraper_cli_v0.4.5_win64 --icon=assets/icon.ico --paths . --clean run_cli.py
+    pyinstaller -D -c -n JAVscraper_cli --paths . --clean run_cli.py
 
 和 run.py 的区别只有两点：
 

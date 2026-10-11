@@ -10,6 +10,7 @@ import dataclasses
 import json
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from typing import Any
 
 from .defaults import DEFAULT_ATTACHMENT_EXTENSIONS, DEFAULT_PREFIXES, DEFAULT_VIDEO_EXTENSIONS
 from .fileio import write_via_temp
@@ -92,6 +93,10 @@ class ScraperConfig:
         default_factory=list,
         metadata={"hidden": True},
     )
+    scan_directories: list[str] = field(
+        default_factory=list,
+        metadata={"hidden": True},
+    )
 
 
 @dataclass
@@ -156,20 +161,21 @@ class ProcessorConfig:
         metadata={"hidden": True},
     )
 
-def _filter_fields(cls, data) -> dict:
+def _filter_fields(cls, data: Any) -> dict:
     """从 dict 里挑出 cls 认识的字段。非 dict 输入或未知字段都安全忽略。"""
     if not isinstance(data, dict):
         return {}
     known = {f.name for f in dataclasses.fields(cls)}
     return {k: v for k, v in data.items() if k in known}
 
-def _coerce_choices(cls, data: dict) -> dict:
+
+def _coerce_choices(cls, data: Any) -> dict:
     """把 choice 字段的非法值替换为默认值。
 
     兼容用户手改 config.json，以及旧枚举值升级后的情形。
     """
     if not isinstance(data, dict):
-        return data
+        return {}
     result = dict(data)
     for f in dataclasses.fields(cls):
         if f.name not in result:
@@ -181,14 +187,15 @@ def _coerce_choices(cls, data: dict) -> dict:
             result[f.name] = f.default
     return result
 
-def _migrate_scraper_config(data: dict) -> dict:
+
+def _migrate_scraper_config(data: Any) -> dict:
     """把 0.4.x 的 supported_extensions 拆成 video / attachment 两组。
 
     只在新字段都不存在时执行一次。不认识的自定义扩展名归到视频，
     保持原有行为（不认识的扩展名以前也会被扫描）。
     """
     if not isinstance(data, dict):
-        return data
+        return {}
     if "video_extensions" in data or "attachment_extensions" in data:
         return data
     old = data.get("supported_extensions")
@@ -214,7 +221,8 @@ def _migrate_scraper_config(data: dict) -> dict:
     new_data["attachment_extensions"] = attachments
     return new_data
 
-def _choice_notices(cls, data) -> list[str]:
+
+def _choice_notices(cls, data: Any) -> list[str]:
     """列出会被 _coerce_choices 改成默认值的项（供启动时提示用户）。"""
     if not isinstance(data, dict):
         return []
@@ -231,7 +239,7 @@ def _choice_notices(cls, data) -> list[str]:
     return notices
 
 
-def _migration_notices(raw_scraper) -> list[str]:
+def _migration_notices(raw_scraper: Any) -> list[str]:
     """旧版 supported_extensions 需要拆分时给一句提示。"""
     if not isinstance(raw_scraper, dict):
         return []

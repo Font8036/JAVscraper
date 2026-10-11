@@ -9,7 +9,7 @@ import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Optional, Sequence
 
 from .config import ScraperConfig
 
@@ -18,6 +18,41 @@ logger = logging.getLogger(__name__)
 # 预编译正则用 \d 会匹配 Unicode 数字，这里一律用 [0-9] 更安全
 _D = "[0-9]"
 
+def _dedupe_directories(
+    directories: list[Path],
+) -> tuple[list[Path], list[tuple[Path, Path]]]:
+    """规范化、去重、剔除被其它目录包含的目录。
+
+    返回 (保留的目录列表, 被跳过的列表)。
+    被跳过列表的每一项是 (被跳过的目录, 覆盖它的目录)。
+    """
+    seen: set[Path] = set()
+    unique: list[Path] = []
+    for d in directories:
+        try:
+            resolved = d.resolve()
+        except OSError:
+            resolved = d
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        unique.append(resolved)
+
+    kept: list[Path] = []
+    skipped: list[tuple[Path, Path]] = []
+    for i, d in enumerate(unique):
+        covering: Optional[Path] = None
+        for j, other in enumerate(unique):
+            if i == j:
+                continue
+            if d.is_relative_to(other):
+                covering = other
+                break
+        if covering is not None:
+            skipped.append((d, covering))
+        else:
+            kept.append(d)
+    return kept, skipped
 
 @dataclass
 class ScrapeResult:
@@ -132,9 +167,9 @@ class CodeExtractor:
     def scan_directory(
         self,
         directory: str | Path,
-        recursive: bool | None = None,
-        progress: Callable[[ScrapeResult], None] | None = None,
-        on_total: Callable[[int], None] | None = None,
+        recursive: Optional[bool] = None,
+        progress: Optional[Callable[[ScrapeResult], None]] = None,
+        on_total: Optional[Callable[[int], None]] = None,
     ) -> list[ScrapeResult]:
         directory = Path(directory)
         if not directory.exists():
@@ -142,9 +177,81 @@ class CodeExtractor:
 
         if recursive is None:
             recursive = self.config.recursive_processing
-        iterator = directory.rglob("*") if recursive else directory.glob("*")
 
-        # 先一次性收集候选文件，得到总数
+        candidates = self._collect_candidates(directory, recursive)
+
+        if on_total is not None:
+            on_total(len(candidates))
+
+        results: list[ScrapeResult] = []
+        for path in candidates:
+            result = self._process_one(path)
+            if result is None:
+                continue
+            results.append(result)
+            if progress is not None:
+                progress(result)
+        return results
+
+    def scan_directories(
+        self,
+        directories: Sequence[str | Path],
+        recursive: Optional[bool] = None,
+        progress: Optional[Callable[[ScrapeResult], None]] = None,
+        on_total: Optional[Callable[[int], None]] = None,
+    ) -> list[ScrapeResult]:
+        """扫描多个目录，合并结果。
+
+        - 空项会被忽略
+        - 目录按 ``resolve()`` 规范化后去重
+        - 嵌套目录（A 包含 B）只扫 A，B 静默跳过并写日志
+        - 文件按绝对路径去重（防软链接、重复目录等）
+        - ``on_total`` 在收集完成后一次性回调，进度条分母稳定
+        """
+        if recursive is None:
+            recursive = self.config.recursive_processing
+
+        raw = [Path(d) for d in directories if d and str(d).strip()]
+        kept, skipped = _dedupe_directories(raw)
+        for nested, parent in skipped:
+            logger.info(
+                "检测到嵌套目录 %s（已被 %s 覆盖），自动跳过", nested, parent)
+
+        candidates: list[Path] = []
+        seen: set[str] = set()
+        for d in kept:
+            if not d.exists():
+                logger.warning("目录不存在，已跳过：%s", d)
+                continue
+            if not d.is_dir():
+                logger.warning("不是目录，已跳过：%s", d)
+                continue
+            for path in self._collect_candidates(d, recursive):
+                try:
+                    key = str(path.resolve())
+                except OSError:
+                    key = str(path)
+                if key in seen:
+                    continue
+                seen.add(key)
+                candidates.append(path)
+
+        if on_total is not None:
+            on_total(len(candidates))
+
+        results: list[ScrapeResult] = []
+        for path in candidates:
+            result = self._process_one(path)
+            if result is None:
+                continue
+            results.append(result)
+            if progress is not None:
+                progress(result)
+        return results
+
+    def _collect_candidates(self, directory: Path, recursive: bool) -> list[Path]:
+        """列出目录下所有受支持的文件。rglob 的迭代器只能消费一次，先收集。"""
+        iterator = directory.rglob("*") if recursive else directory.glob("*")
         candidates: list[Path] = []
         for path in iterator:
             try:
@@ -152,40 +259,30 @@ class CodeExtractor:
                     candidates.append(path)
             except OSError:
                 continue
+        return candidates
 
-        if on_total is not None:
-            on_total(len(candidates))
+    def _process_one(self, path: Path) -> Optional[ScrapeResult]:
+        """处理单个文件；读取失败时返回 None（已写日志）。"""
+        try:
+            code = self.extract(path.name)
+            inherited = False
+            if code is None and self.config.inherit_from_parent:
+                parent_name = path.parent.name
+                if parent_name:
+                    parent_code = self.extract(parent_name)
+                    if parent_code is not None:
+                        code = parent_code
+                        inherited = True
+            size = path.stat().st_size
+        except OSError as e:
+            logger.warning("读取失败 %s: %s", path.name, e)
+            return None
 
-        results: list[ScrapeResult] = []
-        for path in candidates:
-            try:
-                code = self.extract(path.name)
-                inherited = False
-
-                # 文件名没提取到，尝试父目录名
-                if code is None and self.config.inherit_from_parent:
-                    parent_name = path.parent.name
-                    if parent_name:
-                        parent_code = self.extract(parent_name)
-                        if parent_code is not None:
-                            code = parent_code
-                            inherited = True
-
-                size = path.stat().st_size
-            except OSError as e:
-                logger.warning("读取失败 %s: %s", path.name, e)
-                continue
-
-            result = ScrapeResult(
-                file_path=str(path),
-                filename=path.name,
-                extracted_code=code or path.name,
-                status="extracted" if code else "original",
-                file_size=size,
-                inherited=inherited,
-            )
-            results.append(result)
-            if progress is not None:
-                progress(result)
-
-        return results
+        return ScrapeResult(
+            file_path=str(path),
+            filename=path.name,
+            extracted_code=code or path.name,
+            status="extracted" if code else "original",
+            file_size=size,
+            inherited=inherited,
+        )

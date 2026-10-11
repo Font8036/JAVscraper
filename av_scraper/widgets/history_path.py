@@ -116,6 +116,10 @@ class HistoryPathInput(ttk.Frame):
         if not self.get() and history:
             self._set_silent(history[0])
 
+    def refresh_history(self) -> None:
+        """只重读历史更新下拉，不改当前值（区别于 refresh()）。"""
+        self._combo.configure(values=list(self._get_history()))
+
     # ---------- 内部 ----------
     def _set_silent(self, value: str) -> None:
         self._suppress_trace = True

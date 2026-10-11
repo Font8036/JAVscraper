@@ -69,10 +69,13 @@ def save_text_report(results: list[ScrapeResult], path: Path) -> None:
         else:
             icon = "✗"
         lines.append(f"{icon} {r.filename} -> {r.extracted_code}")
-
+    lines += [
+        "",
+        "=" * 50,
+        "图例：✓ 成功提取  ↳ 父目录继承  ✎ 手动修改  ✗ 未识别",
+    ]
     text = "\n".join(lines)
     write_via_temp(path, lambda tmp: tmp.write_text(text, encoding="utf-8"))
-
 
 def save_csv(results: list[ScrapeResult], path: Path) -> None:
     extracted = sorted(
@@ -89,7 +92,12 @@ def save_csv(results: list[ScrapeResult], path: Path) -> None:
             writer = csv.writer(f)
             writer.writerow(["原始文件名", "提取出的信息", "来源"])
             for r in extracted:
-                source = "父目录继承" if r.inherited else "文件名"
+                if r.manually_edited:
+                    source = "手动修改"
+                elif r.inherited:
+                    source = "父目录继承"
+                else:
+                    source = "文件名"
                 writer.writerow([r.filename, r.extracted_code, source])
             writer.writerow([])
             writer.writerow(["统计信息"])

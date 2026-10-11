@@ -37,23 +37,23 @@ class ScanTab(ttk.Frame):
     def _build(self) -> None:
         top = ttk.Frame(self)
         top.pack(fill="x")
-        self.dir_input = HistoryPathInput(
-            top,
-            label="扫描目录:",
-            kind="dir",
-            get_value=lambda: (
-                self.app.app_config.scraper.recent_scan_dirs[0]
-                if self.app.app_config.scraper.recent_scan_dirs
-                else ""
-            ),
-            set_value=lambda v: None,   # 扫描目录的当前值不单独持久化，只记历史
-            get_history=lambda: self.app.app_config.scraper.recent_scan_dirs,
-            set_history=lambda h: setattr(
-                self.app.app_config.scraper, "recent_scan_dirs", h),
-            get_limit=lambda: self.app.app_config.max_recent_dirs,
-            save=lambda: self.app.app_config.save(self.app.config_path),
+        # ===== 目录输入区（支持多目录）=====
+        dirs_section = ttk.Frame(self)
+        dirs_section.pack(fill="x")
+        self.dirs_rows_frame = ttk.Frame(dirs_section)
+        self.dirs_rows_frame.pack(fill="x")
+        self.dir_rows: list[HistoryPathInput] = []
+        self._dir_row_frames: list[ttk.Frame] = []
+
+        saved = self.app.app_config.scraper.scan_directories or [""]
+        for i, d in enumerate(saved):
+            self._add_dir_row(initial_value=d, removable=(i > 0))
+
+        self.add_dir_btn = ttk.Button(
+            dirs_section, text="+ 添加目录",
+            command=lambda: self._add_dir_row(removable=True),
         )
-        self.dir_input.pack(side="left", fill="x", expand=True, padx=4)
+        self.add_dir_btn.pack(anchor="w", padx=4, pady=(2, 0))
 
         # 状态判定辅助（把 ScrapeResult 翻译成展示/排序信息）
         def _status_rank(r):
@@ -134,6 +134,73 @@ class ScanTab(ttk.Frame):
         self.log = tk.Text(self, height=self.app.app_config.log_height, wrap="none", state="disabled")
         self.log.pack(fill="both")
 
+    # ---------- 目录行管理 ----------
+    def _add_dir_row(self, initial_value: str = "", removable: bool = False) -> None:
+        row = ttk.Frame(self.dirs_rows_frame)
+        row.pack(fill="x", pady=2)
+
+        inp = HistoryPathInput(
+            row,
+            label="扫描目录:",
+            kind="dir",
+            get_value=lambda: initial_value,
+            set_value=lambda v: None,     # 当前值在扫描完成时统一提交
+            get_history=lambda: self.app.app_config.scraper.recent_scan_dirs,
+            set_history=self._set_shared_history,
+            get_limit=lambda: self.app.app_config.max_recent_dirs,
+            save=lambda: self.app.app_config.save(self.app.config_path),
+        )
+        inp.pack(side="left", fill="x", expand=True)
+
+        if removable:
+            ttk.Button(
+                row, text="移除", width=6,
+                command=lambda r=row, i=inp: self._remove_dir_row(r, i),
+            ).pack(side="left", padx=(4, 0))
+
+        self.dir_rows.append(inp)
+        self._dir_row_frames.append(row)
+
+    def _remove_dir_row(self, row: ttk.Frame, inp: HistoryPathInput) -> None:
+        """移除一个附加目录行；主行（不可移除）由 UI 保证没有按钮。"""
+        try:
+            self.dir_rows.remove(inp)
+            self._dir_row_frames.remove(row)
+        except ValueError:
+            return
+        row.destroy()
+
+    def _set_shared_history(self, history: list[str]) -> None:
+        """所有目录行共享一份历史；更新时同步刷新每行的下拉。"""
+        self.app.app_config.scraper.recent_scan_dirs = history
+        for inp in self.dir_rows:
+            inp.refresh_history()
+
+    def _commit_dirs(self) -> None:
+        """扫描结束后：保存当前目录列表 + 更新共享历史 + 落盘。"""
+        cfg = self.app.app_config.scraper
+        dirs = [inp.get() for inp in self.dir_rows if inp.get()]
+        cfg.scan_directories = dirs
+
+        if dirs:
+            old = list(cfg.recent_scan_dirs)
+            merged: list[str] = []
+            for d in dirs:
+                if d not in merged:
+                    merged.append(d)
+            for h in old:
+                if h not in merged:
+                    merged.append(h)
+            limit = max(1, int(self.app.app_config.max_recent_dirs))
+            cfg.recent_scan_dirs = merged[:limit]
+            for inp in self.dir_rows:
+                inp.refresh_history()
+
+        try:
+            self.app.app_config.save(self.app.config_path)
+        except OSError:
+            pass
+
     def _attach_logger(self) -> None:
         if getattr(self, "_logger_attached", False):
             return
@@ -153,20 +220,31 @@ class ScanTab(ttk.Frame):
 
     # ---------- 外部接口 ----------
     def sync_from_config(self) -> None:
-        self.dir_input.refresh()
+        if not self.dir_rows:
+            return
+        # 主行：可能填入历史第一条（保持原行为）
+        self.dir_rows[0].refresh()
+        # 附加行：只刷新下拉，不动当前值
+        for inp in self.dir_rows[1:]:
+            inp.refresh_history()
 
     # ---------- 事件 ----------
 
     def _on_scan(self) -> None:
         if self._scanning:
             return
-        directory = self.dir_input.get()
-        if not directory:
+        directories = [inp.get() for inp in self.dir_rows if inp.get()]
+        if not directories:
             messagebox.showwarning("提示", "请先选择扫描目录")
             return
-        if not Path(directory).exists():
-            messagebox.showerror("错误", f"目录不存在：{directory}")
-            return
+        for d in directories:
+            p = Path(d)
+            if not p.exists():
+                messagebox.showerror("错误", f"目录不存在：{d}")
+                return
+            if not p.is_dir():
+                messagebox.showerror("错误", f"不是目录：{d}")
+                return
 
         self.result_tree.clear()
         self._clear_log()
@@ -178,18 +256,18 @@ class ScanTab(ttk.Frame):
 
         cfg = self.app.app_config.scraper
         threading.Thread(
-            target=self._worker, args=(directory, cfg), daemon=True,
+            target=self._worker, args=(directories, cfg), daemon=True,
         ).start()
 
     # ---------- 后台 ----------
-    def _worker(self, directory: str, cfg: ScraperConfig) -> None:
+    def _worker(self, directories: list[str], cfg: ScraperConfig) -> None:
         try:
             extractor = CodeExtractor(cfg)
-            results = extractor.scan_directory(
-                directory,
+            results = extractor.scan_directories(
+                directories,
                 recursive=cfg.recursive_processing,
                 progress=lambda r: self._q.put(("row", r)),
-                on_total=lambda n: self._q.put(("total", n)),   # ← 新增
+                on_total=lambda n: self._q.put(("total", n)),
             )
 
             base = cfg.output_directory or str(log_dir())
@@ -260,7 +338,7 @@ class ScanTab(ttk.Frame):
         self._results = results
 
         # —— 记住本次使用的目录 ——
-        self.dir_input.commit()
+        self._commit_dirs()
 
         total = len(results)
         extracted = sum(1 for r in results if r.is_extracted and not r.inherited)

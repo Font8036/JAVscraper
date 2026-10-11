@@ -23,7 +23,7 @@ import os
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 # 临时文件的附加后缀，例如 报告.xlsx → .报告.xlsx.saving
 TEMP_SUFFIX = ".saving"
@@ -89,7 +89,7 @@ def discard(path: str | Path) -> None:
         pass
 
 
-def write_via_temp(target: str | Path, write: Callable[[Path], None]) -> Path:
+def write_via_temp(target: str | Path, write: Callable[[Path], Any]) -> Path:
     """写临时文件后替换到目标；失败时清掉临时文件并原样抛错。
 
     ``write`` 收到的是临时文件路径，往里写就行（不要自己去动 target）。

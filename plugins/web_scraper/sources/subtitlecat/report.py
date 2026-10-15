@@ -80,7 +80,10 @@ def build_excel(
                 or status == "未搜到"
                 or status == "已停止"
             )
-            is_mismatch = "番号不一致" in status
+            # 番号不同：没下载，但不算"失败"——保留浅黄提示用户留意
+            # （旧数据里的"下载成功（番号不一致）"也归入这一类，向后兼容）
+            is_mismatch = (status == "番号不同"
+                           or "番号不一致" in status)
 
             if is_failed:
                 cell_fmt = failed_cell_fmt

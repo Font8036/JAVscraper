@@ -95,18 +95,17 @@ def normalize_code(code: str) -> str:
     s = s.replace("FC2PPV", "FC2").replace("FC2-PPV", "FC2")
     return s.replace("-", "").replace("_", "")
 
-
-def is_matched(target: str, scraped: str) -> bool:
-    return bool(target) and normalize_code(target) == normalize_code(scraped)
-
-
 # ---- 选择最佳结果 ----
 def pick_best(
     results: list[SearchResult],
     target_code: str,
     extractor,  # CodeExtractor
 ) -> Optional[SearchResult]:
-    """四级优先级：番号一致 > 👍 > translated from Chinese > 下载量。"""
+    """在「番号一致」的候选里挑最优。
+
+    如果一条都不匹配，返回 None —— 调用方据此跳过下载。
+    排序优先级：👍 > translated from Chinese > 下载量。
+    """
     if not results:
         return None
 
@@ -116,12 +115,17 @@ def pick_best(
         code = extractor.extract(r.title_clean)
         return code or ""
 
+    matched = [
+        r for r in results
+        if get_code(r) and normalize_code(get_code(r)) == target_norm
+    ]
+    if not matched:
+        return None
+
     def sort_key(r: SearchResult):
-        code = get_code(r)
-        level1 = 1 if code and normalize_code(code) == target_norm else 0
         level2 = 1 if r.has_thumbs_up else 0
         level3 = 1 if r.translated_from_chinese else 0
         level4 = r.downloads
-        return (level1, level2, level3, level4)
+        return (level2, level3, level4)
 
-    return max(results, key=sort_key)
+    return max(matched, key=sort_key)

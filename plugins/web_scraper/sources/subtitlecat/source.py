@@ -187,7 +187,7 @@ class SubtitleCatSource:
             s = r.status
             if "下载失败" in s or s == "未搜到":
                 return 0
-            if "番号不一致" in s:
+            if s == "番号不同":
                 return 1
             if s == "等待翻译":
                 return 2
@@ -199,7 +199,7 @@ class SubtitleCatSource:
             s = r.status
             if "下载失败" in s or s == "未搜到" or s == "已停止":
                 return ("failed",)
-            if "番号不一致" in s:
+            if s == "番号不同":
                 return ("mismatch",)
             return ()
 

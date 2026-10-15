@@ -170,7 +170,7 @@ async def scrape_subtitlecat(
                         # 超时与否都算成功
                         if expired:
                             log(f"{keyword}: 超时后本次尝试成功下载")
-                        record["status"] = _finalize_success(record, keyword)
+                        record["status"] = "下载成功"
                         if on_progress:
                             on_progress(idx, keyword, record, record["status"])
 
@@ -268,7 +268,9 @@ async def _process_one(
 
     best = pick_best(results, keyword, extractor)
     if best is None:
-        record["status"] = "未搜到"
+        # 有搜索结果，但一条都不匹配目标番号 —— 不下载
+        record["status"] = "番号不同"
+        log(f"{keyword}: 共 {len(results)} 个结果，无匹配番号，跳过下载")
         return record
 
     # 填表
@@ -297,7 +299,7 @@ async def _process_one(
     status = await _try_download_or_translate(page, keyword, config, log)
 
     if status == "下载成功":
-        record["status"] = _finalize_success(record, keyword)
+        record["status"] = "下载成功"
     else:
         record["status"] = status
 
@@ -319,16 +321,6 @@ def _new_record(keyword: str, config: SubtitleCatConfig) -> dict:
         "_href": "",
         "_search_url": search_url,
     }
-
-
-def _finalize_success(record: dict, keyword: str) -> str:
-    """下载成功后，判断番号是否一致。"""
-    from .parse import is_matched
-    code = record.get("actual_code", "")
-    if code and not is_matched(keyword, code):
-        return "下载成功（番号不一致）"
-    return "下载成功"
-
 
 # ============================================================
 # 解析搜索结果页

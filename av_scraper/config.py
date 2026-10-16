@@ -361,6 +361,17 @@ class AppConfig:
         return cls(**kwargs), notices
 
     def save(self, path: Path) -> None:
+        # 历史目录列表可能比上限长（用户刚调小了 max_recent_dirs），
+        # 在这里统一裁剪一次：内存和磁盘保持一致
+        self._trim_history()
         # 原子写：写到一半失败时，磁盘上还是原来那份可用配置
         data = json.dumps(asdict(self), ensure_ascii=False, indent=2)
         write_via_temp(path, lambda tmp: tmp.write_text(data, encoding="utf-8"))
+
+    def _trim_history(self) -> None:
+        """按 max_recent_dirs 就地裁剪核心的历史目录列表。"""
+        limit = max(1, int(self.max_recent_dirs))
+        if len(self.scraper.recent_scan_dirs) > limit:
+            self.scraper.recent_scan_dirs = self.scraper.recent_scan_dirs[:limit]
+        if len(self.processor.recent_target_dirs) > limit:
+            self.processor.recent_target_dirs = self.processor.recent_target_dirs[:limit]

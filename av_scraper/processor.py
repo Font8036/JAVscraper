@@ -8,7 +8,7 @@ import shutil
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Optional
 
 from .config import ProcessorConfig
 from .defaults import DEFAULT_ATTACHMENT_EXTENSIONS, DEFAULT_VIDEO_EXTENSIONS
@@ -106,13 +106,17 @@ class FileProcessor:
     def _plan_follow_video(self, extracted: list[dict]) -> list[PlannedOperation]:
         """同目录附件跟随视频命名。规则：
 
-        - 先规划每个目录里的视频（按 `_target_path` 现有逻辑）。
-        - 目录里恰好一个视频时，其他附件跟随该视频的目标名（换扩展名）。
-        - 目录里 0 个或多个视频时，附件退回按码命名。
+        每个源目录独立处理：
+        - 先看源目录里有没有视频。恰好一个 → 附件跟随它的目标名。
+        - 源目录没有视频 → 到目标目录的对应番号文件夹里找。
+          找到恰好一个视频 → 附件跟随它。
+        - 两处都找不到、或找到多个 → 退回 attachment_naming 的其他规则。
 
-        只按目录分组，不做跨目录配对——跨目录需要用户二次扫描。
+        平铺模式（move_to_extracted_folder=False）不启用目标目录查找——
+        没有明确的番号文件夹，无从查起。
+
+        只按目录分组，不做跨目录配对。
         """
-        # 1. 按目录分组
         by_dir: dict[Path, list[dict]] = {}
         for r in extracted:
             d = Path(r["file_path"]).parent
@@ -120,6 +124,8 @@ class FileProcessor:
 
         taken: set[str] = set()
         planned: list[PlannedOperation] = []
+        # 目标目录探查缓存：code → 视频路径 / None。每次 plan() 调用内有效。
+        target_video_cache: dict[str, Optional[Path]] = {}
 
         def _emit(src: Path, target: Path, code: str) -> None:
             final, status = self._resolve_conflict(target, taken)
@@ -136,7 +142,7 @@ class FileProcessor:
             main_video = videos[0] if len(videos) == 1 else None
 
             # 主视频先规划，拿到它的目标路径
-            video_target: Path | None = None
+            video_target: Optional[Path] = None
             if main_video is not None:
                 code = main_video["extracted_code"]
                 target = self._target_path(Path(main_video["file_path"]), code)
@@ -148,15 +154,22 @@ class FileProcessor:
                     continue
                 src = Path(r["file_path"])
                 code = r["extracted_code"]
-                if (main_video is not None
-                        and video_target is not None
-                        and self._is_attachment(r["file_path"])):
+                is_att = self._is_attachment(src)
+
+                if main_video is not None and video_target is not None and is_att:
+                    # 第一层：跟随源目录里的视频
                     _emit(src, video_target.with_suffix(src.suffix), code)
+                elif is_att:
+                    # 第二层：源目录没视频，试试目标目录里已有的视频
+                    tv = self._find_target_video(code, cache=target_video_cache)
+                    if tv is not None:
+                        _emit(src, tv.parent / f"{tv.stem}{src.suffix}", code)
+                    else:
+                        _emit(src, self._target_path(
+                            src, code, is_attachment=True), code)
                 else:
                     _emit(src, self._target_path(
-                        src, code,
-                        is_attachment=self._is_attachment(src),
-                    ), code)
+                        src, code, is_attachment=is_att), code)
 
         return planned
 
@@ -165,6 +178,35 @@ class FileProcessor:
 
     def _is_attachment(self, path: str | Path) -> bool:
         return Path(path).suffix.lower() in self._attachment_exts
+
+    def _find_target_video(
+        self, code: str, *, cache: dict[str, Optional[Path]],
+    ) -> Optional[Path]:
+        """在目标目录的对应番号文件夹里找唯一视频。
+
+        找不到、找到多个、平铺模式、目标目录不存在 —— 一律返回 None。
+        调用方据此退回其他命名规则。
+        """
+        if code in cache:
+            return cache[code]
+
+        result: Optional[Path] = None
+        if (self.config.move_to_extracted_folder
+                and self.config.target_directory):
+            folder = Path(self.config.target_directory) / code
+            try:
+                if folder.is_dir():
+                    videos = [
+                        p for p in folder.iterdir()
+                        if p.is_file() and p.suffix.lower() in self._video_exts
+                    ]
+                    if len(videos) == 1:
+                        result = videos[0]
+            except OSError:
+                pass
+
+        cache[code] = result
+        return result
 
     def _target_path(
         self, src: Path, code: str, *, is_attachment: bool = False,

@@ -87,6 +87,7 @@ class ScraperConfig:
             "kind": "list",
             "big": True,
             "row_group": "scraper_lists",
+            "tooltip": "出于减少误报的考虑，不建议增加两个字母或一个字母的前缀。",
         },
     )
     recent_scan_dirs: list[str] = field(
@@ -136,11 +137,14 @@ class ProcessorConfig:
             "label": "附件命名方式",
             "kind": "choice",
             "choices": ["保留原文件名", "按提取码命名", "跟随视频命名"],
-            "row_group": "processor_naming",   # ← 和附件那项排一行
+            "row_group": "processor_naming",
             "tooltip": "保留原文件名 — 不动附件名（默认）\n"
                        "按提取码命名 — 附件改为「提取码.扩展名」\n"
-                       "跟随视频命名 — 附件与同目录视频同名。\n"
-                       "  同目录需恰好一个视频；否则退回保留原名。\n"
+                       "跟随视频命名 — 附件与视频同名。\n"
+                       "  优先跟源目录里的视频；源目录没有视频时，\n"
+                       "  到目标目录的对应番号文件夹里找。\n"
+                       "  两处都要恰好一个视频才算数，否则退回保留原名。\n"
+                       "  平铺模式（不建番号子文件夹）不启用目标目录查找。\n"
                        "  Jellyfin 靠文件名匹配字幕，跟随命名可自动关联。",
         },
     )

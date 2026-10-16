@@ -98,7 +98,7 @@ async def scrape_subtitlecat(
             log(f"正在打开主页（超时 {first_load_timeout // 1000} 秒）…")
             await page.goto(
                 config.base_url,
-                wait_until="load",
+                wait_until="domcontentloaded",
                 timeout=first_load_timeout,
             )
             log(f"已打开：{page.url}")
@@ -134,12 +134,6 @@ async def scrape_subtitlecat(
                 if on_progress:
                     on_progress(idx, keyword, record, record["status"])
 
-                # 返回搜索页
-                try:
-                    await page.goto(config.base_url, wait_until="load")
-                except Exception:
-                    pass
-
             # ============================================================
             # 后续轮：处理等待翻译
             # ============================================================
@@ -158,7 +152,11 @@ async def scrape_subtitlecat(
                     status = "下载失败"
                     try:
                         full_url = urljoin(config.base_url, item["href"])
-                        await page.goto(full_url, wait_until="load")
+                        await page.goto(
+                            full_url,
+                            wait_until="domcontentloaded",
+                            timeout=config.page_timeout_ms * 2,
+                        )
                         status = await _try_download_or_translate(
                             page, keyword, config, log,
                         )
@@ -220,19 +218,20 @@ async def _process_one(
     log: LogFn,
 ) -> dict:
     """搜索一个关键词，选最佳结果，尝试下载。返回 record dict。"""
+    # 删掉 _process_one 末尾的 fill + wait_for_selector + click，
+    # 直接 goto 搜索 URL    
     record = _new_record(keyword, config)
-
-    # 搜索
     try:
-        await page.fill("#search", "")
-        await page.fill("#search", keyword)
-        await page.wait_for_selector("#button-addon2", timeout=10000)
-        await page.click("#button-addon2")
+        await page.goto(
+            record["_search_url"],
+            wait_until="domcontentloaded",
+            timeout=config.page_timeout_ms * 2,
+        )
     except Exception as e:
-        log(f"{keyword}: 搜索提交失败：{e}")
+        log(f"{keyword}: 搜索页打开失败：{e}")
         record["status"] = "下载失败"
         return record
-
+    # ...下面的解析逻辑不变
     # 等待结果 / 空结果
     try:
         await page.wait_for_selector(
@@ -289,7 +288,7 @@ async def _process_one(
     # 进详情页
     full_url = urljoin(config.base_url, best.href)
     try:
-        await page.goto(full_url, wait_until="load")
+        await page.goto(full_url, wait_until="domcontentloaded", timeout=config.page_timeout_ms * 2)
     except Exception as e:
         log(f"{keyword}: 进入详情页失败：{e}")
         record["status"] = "下载失败"

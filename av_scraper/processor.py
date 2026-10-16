@@ -153,7 +153,10 @@ class FileProcessor:
                         and self._is_attachment(r["file_path"])):
                     _emit(src, video_target.with_suffix(src.suffix), code)
                 else:
-                    _emit(src, self._target_path(src, code), code)
+                    _emit(src, self._target_path(
+                        src, code,
+                        is_attachment=self._is_attachment(src),
+                    ), code)
 
         return planned
 

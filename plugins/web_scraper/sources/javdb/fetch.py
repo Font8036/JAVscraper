@@ -114,7 +114,12 @@ async def scrape_javdb(
         try:
             # 首次打开主页，网络慢，给 5 倍超时
             on_log(f"正在打开主页（超时 {config.page_timeout_ms * 5 // 1000} 秒）…")
-            await page.goto(config.base_url, wait_until="load", timeout=config.page_timeout_ms * 5)
+            # 主页只是入口，不需要等图片/字体/CSS 全部加载完
+            await page.goto(
+                config.base_url,
+                wait_until="domcontentloaded",
+                timeout=config.page_timeout_ms * 5,
+            )
             on_log(f"已打开网页: {page.url}")
 
             for idx, keyword in enumerate(targets):
@@ -279,8 +284,6 @@ async def _process_one(
         comments = await page.inner_text("#reviews > article > div")
     except Exception:
         comments = "暫無內容"
-
-    await asyncio.sleep(config.request_delay)
 
     # ---- 下载封面 ----
     if cover_url and config.cover_dir:

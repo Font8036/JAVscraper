@@ -726,7 +726,7 @@ def test_default_prog_ignores_python_c(monkeypatch):
 
 def test_no_args_still_launches_the_gui(monkeypatch):
     """双击 exe / python run.py 这条老路径不能被命令行改动影响（也不该真开窗口）。"""
-    from av_scraper import __main__ as entry
+    import av_scraper.__main__ as entry   # type: ignore[attr-defined]
 
     calls: list[str] = []
     monkeypatch.setattr(entry, "_enable_dpi_awareness", lambda: calls.append("dpi"))
@@ -737,8 +737,8 @@ def test_no_args_still_launches_the_gui(monkeypatch):
 
 
 def test_args_are_dispatched_to_the_cli(monkeypatch):
-    from av_scraper import __main__ as entry
-
+    import av_scraper.__main__ as entry   # type: ignore[attr-defined]
+    
     monkeypatch.setattr(
         entry, "launch_gui", lambda: pytest.fail("带参数时不应该启动图形界面"))
     out = io.StringIO()

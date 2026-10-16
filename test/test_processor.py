@@ -17,6 +17,7 @@ import shutil
 import tempfile
 import uuid
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -47,7 +48,7 @@ def dirs():
 
 
 def make_processor(target: Path, **overrides) -> FileProcessor:
-    values = dict(
+    values: dict[str, Any] = dict(
         target_directory=str(target),
         move_to_extracted_folder=True,
         video_naming="保留原文件名",
@@ -357,6 +358,89 @@ def test_plan_follow_video_does_not_cross_directories(dirs):
     )
     targets = {p.src.name: p.dst for p in planned}
     assert targets["sub.srt"] == dst / "ABP-123" / "sub.srt"   # 没被 a/ 里的视频带走
+
+# ---------------------------------------------------------------------------
+# 4b. plan：跟随视频命名——目标目录兜底
+# ---------------------------------------------------------------------------
+def test_follow_video_falls_back_to_target_dir(dirs):
+    """源目录没有视频，但目标目录里已有 → 附件跟随目标目录里的视频。"""
+    src, dst, _ = dirs
+    # 目标目录里已有一个视频（模拟"用户之前已经移过视频了"）
+    make_file(dst / "ABP-123" / "ABP-123 某某标题.mp4")
+    # 现在扫描的是附件
+    s = make_file(src / "ABP-123-zh-CN.srt")
+    proc = make_processor(dst, attachment_naming="跟随视频命名")
+    (op,) = proc.plan([result(s, "ABP-123")])
+    assert op.dst == dst / "ABP-123" / "ABP-123 某某标题.srt"
+
+
+def test_follow_video_prefers_source_dir_over_target(dirs):
+    """源目录和目标目录都有视频时，跟随源目录的。"""
+    src, dst, _ = dirs
+    make_file(dst / "ABP-123" / "OLD-NAME.mp4")     # 目标目录里的旧视频
+    v = make_file(src / "NEW-NAME.mp4")             # 源目录里这次要移动的视频
+    s = make_file(src / "sub.srt")
+    proc = make_processor(dst, attachment_naming="跟随视频命名")
+    planned = proc.plan([result(v, "ABP-123"), result(s, "ABP-123")])
+    targets = {p.src.name: p.dst for p in planned}
+    assert targets["sub.srt"] == dst / "ABP-123" / "NEW-NAME.srt"
+    assert targets["NEW-NAME.mp4"] == dst / "ABP-123" / "NEW-NAME.mp4"
+
+
+def test_follow_video_target_dir_multiple_videos_falls_back(dirs):
+    """目标目录里有多个视频 → 不猜，退回保留原名。"""
+    src, dst, _ = dirs
+    make_file(dst / "ABP-123" / "part1.mp4")
+    make_file(dst / "ABP-123" / "part2.mp4")
+    s = make_file(src / "中文字幕.srt")
+    proc = make_processor(dst, attachment_naming="跟随视频命名")
+    (op,) = proc.plan([result(s, "ABP-123")])
+    assert op.dst == dst / "ABP-123" / "中文字幕.srt"
+
+
+def test_follow_video_target_dir_missing_folder_falls_back(dirs):
+    """目标目录里连番号文件夹都没有 → 退回保留原名。"""
+    src, dst, _ = dirs
+    s = make_file(src / "中文字幕.srt")
+    proc = make_processor(dst, attachment_naming="跟随视频命名")
+    (op,) = proc.plan([result(s, "ABP-123")])
+    assert op.dst == dst / "ABP-123" / "中文字幕.srt"
+
+
+def test_follow_video_flat_mode_does_not_look_in_target(dirs):
+    """平铺模式不查目标目录，即使里面有同名视频。"""
+    src, dst, _ = dirs
+    make_file(dst / "ABP-123.mp4")                  # 平铺在目标目录里
+    s = make_file(src / "中文字幕.srt")
+    proc = make_processor(
+        dst, attachment_naming="跟随视频命名",
+        move_to_extracted_folder=False,
+    )
+    (op,) = proc.plan([result(s, "ABP-123")])
+    assert op.dst == dst / "中文字幕.srt"              # 没有跟随
+
+
+def test_follow_video_target_lookup_is_cached(dirs, monkeypatch):
+    """相同番号的多个附件只查一次目标目录。"""
+    src, dst, _ = dirs
+    make_file(dst / "ABP-123" / "video.mp4")
+    s1 = make_file(src / "a.srt")
+    s2 = make_file(src / "b.srt")
+
+    calls: list[str] = []
+    original = FileProcessor._find_target_video
+
+    def counted(self, code, *, cache):
+        calls.append(code)
+        return original(self, code, cache=cache)
+
+    monkeypatch.setattr(FileProcessor, "_find_target_video", counted)
+
+    proc = make_processor(dst, attachment_naming="跟随视频命名")
+    planned = proc.plan([result(s1, "ABP-123"), result(s2, "ABP-123")])
+
+    assert len(calls) == 1                          # 第二次命中缓存
+    assert all(p.dst.parent == dst / "ABP-123" for p in planned)
 
 
 # ---------------------------------------------------------------------------

@@ -70,6 +70,7 @@ def test_rename_when_locked(report, locker):
         None, temp, target, ask=ask, timestamp=fixed_timestamp)
     locker.release()
 
+    assert result is not None
     assert result.name == "报告_20261009_153012.xlsx"
     assert result.read_text(encoding="utf-8") == "NEW"
     assert target.read_text(encoding="utf-8") == "OLD"           # 原文件没被动
@@ -89,6 +90,7 @@ def test_retry_then_rename(report, locker):
 
     assert len(calls) == 2
     assert all(failure is fileio.SaveFailure.LOCKED for _t, failure in calls)
+    assert result is not None
     assert result.name == "报告_20261009_153012.xlsx"
 
 
@@ -134,7 +136,7 @@ def test_save_as_cancelled_falls_back_to_asking_again(report, locker):
         None, temp, target, ask=ask,
         choose_path=lambda _p, _t: None, timestamp=fixed_timestamp)
     locker.release()
-
+    assert result is not None
     assert len(calls) == 2
     assert result.name == "报告_20261009_153012.xlsx"
 

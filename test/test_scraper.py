@@ -16,6 +16,7 @@ import shutil
 import tempfile
 import uuid
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -33,7 +34,7 @@ from av_scraper.scraper import CodeExtractor
 # ---------------------------------------------------------------------------
 def make_config(**overrides) -> ScraperConfig:
     """构造可控配置：只用少量前缀，避免默认的 400+ 前缀干扰断言。"""
-    values = dict(
+    values: dict[str, Any] = dict(
         separators=["-", "_"],
         known_alpha_prefixes=["ABP", "SSIS", "IPX", "IPZZ"],
         video_extensions=[".mp4", ".mkv"],

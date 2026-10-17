@@ -108,7 +108,7 @@ def show_about(parent, plugins=None):
     icon_img = _load_about_icon(256)
     if icon_img is not None:
         icon_label = ttk.Label(frame, image=icon_img)
-        icon_label.image = icon_img  # 防止被 GC 回收
+        icon_label.image = icon_img  # type: ignore # 防止被 GC 回收
         icon_label.pack(pady=(0, 12))
 
     # ---------- 标题 ----------

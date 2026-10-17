@@ -542,7 +542,7 @@ def test_move_saves_partial_record_when_interrupted(work_dir, monkeypatch):
             on_moved(MoveOperation(
                 original_path=str(p.src), moved_to=str(p.dst),
                 original_filename=p.src.name, target_filename=p.dst.name,
-                extracted_code=p.extracted_code))
+                extracted_code=p.extracted_code)) # pyright: ignore[reportOptionalCall]
         raise KeyboardInterrupt
 
     monkeypatch.setattr(cli.FileProcessor, "execute", fake_execute)

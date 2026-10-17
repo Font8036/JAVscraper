@@ -115,7 +115,7 @@ class ProcessorConfig:
         metadata={
             "label": "移动到提取名子文件夹",
             "kind": "bool",
-            "row_group": "processor_naming",   # ← 新增
+            "row_group": "文件夹",
             "tooltip": "勾上后，每个番号建一个子文件夹，文件放进去。\n"
                 "取消则所有文件平铺到目标目录。\n考虑到同一个番号可能对应多个视频文件，且还可能会有字幕文件等，建议勾上。",
         },
@@ -146,6 +146,18 @@ class ProcessorConfig:
                        "  两处都要恰好一个视频才算数，否则退回保留原名。\n"
                        "  平铺模式（不建番号子文件夹）不启用目标目录查找。\n"
                        "  Jellyfin 靠文件名匹配字幕，跟随命名可自动关联。",
+        },
+    )
+    multipart_naming: bool = field(
+        default=False,
+        metadata={
+            "label": "多视频启用 -partN 后缀",
+            "kind": "bool",
+            "row_group": "processor_naming",
+            "tooltip": "同一番号下有多个视频时，自动重命名为「主干-part1」「主干-part2」…以便 Jellyfin 识别为同一部影片。\n"
+                       "提取码命名时，主干为提取码。\n"
+                       "保留原名时，主干为所有文件名的公共部分。\n"
+                       "如果序号不连续（如只有 1、3 缺少 2）或无法解析，整组放弃并退回普通处理。",
         },
     )
     existing_file_handling: str = field(

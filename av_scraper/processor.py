@@ -1,7 +1,8 @@
 """按刮削结果移动 / 重命名 / 撤回文件。"""
 
 from __future__ import annotations
-
+import os
+import re
 import json
 import logging
 import shutil
@@ -65,6 +66,7 @@ class FileProcessor:
         self._attachment_exts = {
             e.lower() for e in (attachment_exts or DEFAULT_ATTACHMENT_EXTENSIONS)
         }
+        self._multipart_map: dict[str, str] = {}   # ← 新增：{绝对路径: 重命名后的文件名}
 
     # ---------- 载入结果 ----------
     @staticmethod
@@ -79,9 +81,77 @@ class FileProcessor:
 
     def plan(self, results: list[dict]) -> list[PlannedOperation]:
         extracted = [r for r in results if r.get("status") == "extracted"]
+        
+        # 预处理：找出所有支持多分段重命名的视频
+        self._multipart_map = {}
+        if self.config.multipart_naming:
+            by_code: dict[str, list[dict]] = {}
+            for r in extracted:
+                by_code.setdefault(r["extracted_code"], []).append(r)
+            for code, items in by_code.items():
+                self._multipart_map.update(self._extract_multipart(items, code))
+
         if self.config.attachment_naming == "跟随视频命名":
             return self._plan_follow_video(extracted)
         return self._plan_by_code(extracted)
+
+    def _extract_multipart(self, items: list[dict], code: str) -> dict[str, str]:
+        """尝试提取多分段视频的 -partN 重命名映射。
+        
+        成功返回 {绝对路径: 新文件名}，失败返回 {}（整组放弃）。
+        """
+        if not self.config.multipart_naming:
+            return {}
+
+        videos = [r for r in items if self._is_video(r["file_path"])]
+        if len(videos) < 2:
+            return {}
+
+        stems = [Path(v["file_path"]).stem for v in videos]
+        lcp = os.path.commonprefix(stems)
+        lcs = os.path.commonprefix([s[::-1] for s in stems])[::-1]
+
+        # 重叠保护：如果公共前缀+后缀把某个文件名切空了
+        if len(lcp) + len(lcs) >= min(len(s) for s in stems):
+            return {}
+
+        indices = []
+        for s in stems:
+            end_idx = -len(lcs) if len(lcs) > 0 else None
+            diff = s[len(lcp):end_idx]
+            # 剔除两端非字母数字字符
+            diff = re.sub(r"^[^a-zA-Z0-9]+|[^a-zA-Z0-9]+$", "", diff)
+
+            if diff.isdigit():
+                indices.append(int(diff))
+            elif len(diff) == 1 and diff.isalpha():
+                indices.append(ord(diff.lower()) - ord('a') + 1)
+            else:
+                # 不支持纯字母+数字混杂或其他奇怪格式
+                logger.info("多分段视频 %s：无法解析序号（差异部分为 '%s'），已放弃", code, diff)
+                return {}
+
+        # 必须无重复，且排序后严格等于 [1, 2, ..., N]
+        if sorted(indices) != list(range(1, len(videos) + 1)):
+            logger.info("多分段视频 %s：序号不连续或重复，已放弃 -partN 重命名", code)
+            return {}
+
+        # 确定主干
+        if self.config.video_naming == "按提取码命名":
+            base = code
+        else:
+            base = lcp.rstrip("-_ .")
+            if not base:
+                base = code
+
+        result = {}
+        for v, idx in zip(videos, indices):
+            src = Path(v["file_path"])
+            new_name = f"{base}-part{idx}{src.suffix}"
+            result[str(src)] = new_name
+
+        logger.info("检测到多分段视频 %s：已准备重命名为 %s-part1 等", code, base)
+        return result
 
     def _plan_by_code(self, extracted: list[dict]) -> list[PlannedOperation]:
         taken: set[str] = set()
@@ -89,10 +159,18 @@ class FileProcessor:
         for r in extracted:
             src = Path(r["file_path"])
             code = r["extracted_code"]
-            target = self._target_path(
-                src, code,
-                is_attachment=self._is_attachment(src),   # ← 新增
-            )
+            
+            if str(src) in self._multipart_map:
+                name = self._multipart_map[str(src)]
+                if self.config.move_to_extracted_folder:
+                    target = Path(self.config.target_directory) / code / name
+                else:
+                    target = Path(self.config.target_directory) / name
+            else:
+                target = self._target_path(
+                    src, code, is_attachment=self._is_attachment(src),
+                )
+                
             final, status = self._resolve_conflict(target, taken)
             planned.append(PlannedOperation(
                 src=src,
@@ -110,6 +188,7 @@ class FileProcessor:
         - 先看源目录里有没有视频。恰好一个 → 附件跟随它的目标名。
         - 源目录没有视频 → 到目标目录的对应番号文件夹里找。
           找到恰好一个视频 → 附件跟随它。
+        - 如果开启了多分段且成功应用，取 part1 作为主视频
         - 两处都找不到、或找到多个 → 退回 attachment_naming 的其他规则。
 
         平铺模式（move_to_extracted_folder=False）不启用目标目录查找——
@@ -124,29 +203,47 @@ class FileProcessor:
 
         taken: set[str] = set()
         planned: list[PlannedOperation] = []
-        # 目标目录探查缓存：code → 视频路径 / None。每次 plan() 调用内有效。
         target_video_cache: dict[str, Optional[Path]] = {}
 
         def _emit(src: Path, target: Path, code: str) -> None:
             final, status = self._resolve_conflict(target, taken)
             planned.append(PlannedOperation(
-                src=src,
-                dst=final if final else target,
-                status=status,
-                extracted_code=code,
+                src=src, dst=final if final else target,
+                status=status, extracted_code=code,
             ))
             taken.add(str(final if final else target))
 
         for items in by_dir.values():
             videos = [r for r in items if self._is_video(r["file_path"])]
-            main_video = videos[0] if len(videos) == 1 else None
+            
+            # 核心修改：如果开启了多分段且成功应用，取 part1 作为主视频
+            main_video = None
+            if len(videos) == 1:
+                main_video = videos[0]
+            elif len(videos) > 1:
+                # 检查这组多视频是否全部命中了 _multipart_map
+                if all(str(Path(v["file_path"])) in self._multipart_map for v in videos):
+                    # 找到名字以 -part1 结尾的那个作为 main_video
+                    for v in videos:
+                        new_name = self._multipart_map[str(Path(v["file_path"]))]
+                        if "-part1" in new_name:
+                            main_video = v
+                            break
 
-            # 主视频先规划，拿到它的目标路径
+            # 主视频先规划，拿到目标路径
             video_target: Optional[Path] = None
             if main_video is not None:
                 code = main_video["extracted_code"]
-                target = self._target_path(Path(main_video["file_path"]), code)
-                _emit(Path(main_video["file_path"]), target, code)
+                src = Path(main_video["file_path"])
+                if str(src) in self._multipart_map:
+                    name = self._multipart_map[str(src)]
+                    if self.config.move_to_extracted_folder:
+                        target = Path(self.config.target_directory) / code / name
+                    else:
+                        target = Path(self.config.target_directory) / name
+                else:
+                    target = self._target_path(src, code)
+                _emit(src, target, code)
                 video_target = target
 
             for r in items:
@@ -155,21 +252,25 @@ class FileProcessor:
                 src = Path(r["file_path"])
                 code = r["extracted_code"]
                 is_att = self._is_attachment(src)
-
-                if main_video is not None and video_target is not None and is_att:
-                    # 第一层：跟随源目录里的视频
+                
+                # 如果当前文件也在 _multipart_map 里（即其它 part），按 part 规划
+                if str(src) in self._multipart_map:
+                    name = self._multipart_map[str(src)]
+                    if self.config.move_to_extracted_folder:
+                        target = Path(self.config.target_directory) / code / name
+                    else:
+                        target = Path(self.config.target_directory) / name
+                    _emit(src, target, code)
+                elif main_video is not None and video_target is not None and is_att:
                     _emit(src, video_target.with_suffix(src.suffix), code)
                 elif is_att:
-                    # 第二层：源目录没视频，试试目标目录里已有的视频
                     tv = self._find_target_video(code, cache=target_video_cache)
                     if tv is not None:
                         _emit(src, tv.parent / f"{tv.stem}{src.suffix}", code)
                     else:
-                        _emit(src, self._target_path(
-                            src, code, is_attachment=True), code)
+                        _emit(src, self._target_path(src, code, is_attachment=True), code)
                 else:
-                    _emit(src, self._target_path(
-                        src, code, is_attachment=is_att), code)
+                    _emit(src, self._target_path(src, code, is_attachment=is_att), code)
 
         return planned
 

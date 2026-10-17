@@ -268,7 +268,18 @@ class AppConfig:
         default=True,
         metadata={
             "label": "关闭时二次确认",
+            "row_group": "界面布局1",
             "kind": "bool",
+        },
+    )
+    auto_check_update: bool = field(
+        default=False,
+        metadata={
+            "label": "启动时检查更新",
+            "row_group": "界面布局1",
+            "kind": "bool",
+            "tooltip": "软件启动 3 秒后静默检查是否有新版本。\n"
+                       "发现新版本时会弹窗提示；已是最新版本则仅在状态栏提示。",
         },
     )
     max_recent_dirs: int = field(

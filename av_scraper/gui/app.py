@@ -52,6 +52,9 @@ class App(tk.Tk):
         elif self._config_notices:
             # 配置被程序改过（字段迁移 / 非法值回退）时告知用户
             self.after(100, self._show_config_notices)
+        # 自动检查更新（配置开启时，启动 3 秒后触发）
+        if getattr(self.app_config, "auto_check_update", False):
+            self.after(3000, self._auto_check_update)
 
     def _apply_ui_scaling(self) -> None:
         """按 DPI × 用户缩放系数设置界面缩放与窗口大小。"""
@@ -174,6 +177,52 @@ class App(tk.Tk):
             version = getattr(plugin, "version", "?")
             plugins.append((name, version))
         self._about_window = show_about(self, plugins=plugins)
+
+    def _auto_check_update(self) -> None:
+        """后台静默检查更新，不阻塞界面。"""
+        import threading
+        threading.Thread(target=self._auto_check_worker, daemon=True).start()
+
+    def _auto_check_worker(self) -> None:
+        # 延迟 import，避免 App 初始化时的循环依赖
+        from .dialogs import fetch_latest_release, is_newer
+        from .. import __version__
+        import webbrowser
+
+        release = fetch_latest_release()
+        if release is None:
+            # 网络异常或 API 限流，静默失败
+            return
+
+        remote = str(release.get("tag_name", "")).lstrip("vV")
+        if not remote:
+            return
+
+        if is_newer(remote, __version__):
+            notes = (release.get("body") or "").strip()
+            html_url = release.get("html_url", "https://github.com/Font8036/JAVscraper/releases")
+            
+            # 切回主线程弹窗
+            self.after(0, lambda: self._show_update_prompt(remote, notes, html_url))
+        else:
+            # 已经是最新版，切回主线程更新状态栏
+            self.after(0, lambda: self.set_status(f"检查更新完成：当前已是最新版本（v{__version__}）"))
+
+    def _show_update_prompt(self, remote: str, notes: str, url: str) -> None:
+        """主线程：弹窗提示有新版本。"""
+        from tkinter import messagebox
+        import webbrowser
+
+        # 如果用户正在做其他事，弹窗可能稍微打断，但这是用户主动开启的功能
+        ans = messagebox.askyesno(
+            "发现新版本",
+            f"检测到新版本：v{remote}\n\n"
+            f"{notes[:400]}\n\n"
+            "是否前往 GitHub 下载页面？",
+            parent=self,
+        )
+        if ans:
+            webbrowser.open(url)
 
     def set_status(self, text: str) -> None:
         self.status_var.set(text)

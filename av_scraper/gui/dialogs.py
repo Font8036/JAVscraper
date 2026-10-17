@@ -36,7 +36,7 @@ def _parse_version(s: str) -> tuple[int, ...]:
     return tuple(out)
 
 
-def _is_newer(remote: str, local: str) -> bool:
+def is_newer(remote: str, local: str) -> bool:
     return _parse_version(remote) > _parse_version(local)
 
 
@@ -108,7 +108,7 @@ def show_about(parent, plugins=None):
     icon_img = _load_about_icon(256)
     if icon_img is not None:
         icon_label = ttk.Label(frame, image=icon_img)
-        icon_label.image = icon_img   # 保持引用，防止被 GC 回收
+        setattr(icon_label, "image", icon_img)  # 防止被 GC 回收
         icon_label.pack(pady=(0, 12))
 
     # ---------- 标题 ----------
@@ -182,7 +182,7 @@ def show_about(parent, plugins=None):
             if not remote:
                 status_var.set("未获取到版本信息。")
                 return
-            if _is_newer(remote, __version__):
+            if is_newer(remote, __version__):
                 status_var.set(f"发现新版本：{remote}")
                 notes = (release.get("body") or "").strip()
                 html_url = release.get("html_url", _GITHUB_URL + "/releases")

@@ -7,9 +7,10 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Optional, Sequence
+from typing import Callable
 
 from .config import ScraperConfig
 
@@ -41,7 +42,7 @@ def _dedupe_directories(
     kept: list[Path] = []
     skipped: list[tuple[Path, Path]] = []
     for i, d in enumerate(unique):
-        covering: Optional[Path] = None
+        covering: Path | None = None
         for j, other in enumerate(unique):
             if i == j:
                 continue
@@ -167,9 +168,9 @@ class CodeExtractor:
     def scan_directory(
         self,
         directory: str | Path,
-        recursive: Optional[bool] = None,
-        progress: Optional[Callable[[ScrapeResult], None]] = None,
-        on_total: Optional[Callable[[int], None]] = None,
+        recursive: bool | None = None,
+        progress: Callable[[ScrapeResult], None] | None = None,
+        on_total: Callable[[int], None] | None = None,
     ) -> list[ScrapeResult]:
         directory = Path(directory)
         if not directory.exists():
@@ -196,15 +197,17 @@ class CodeExtractor:
     def scan_directories(
         self,
         directories: Sequence[str | Path],
-        recursive: Optional[bool] = None,
-        progress: Optional[Callable[[ScrapeResult], None]] = None,
-        on_total: Optional[Callable[[int], None]] = None,
+        recursive: bool | None = None,
+        progress: Callable[[ScrapeResult], None] | None = None,
+        on_total: Callable[[int], None] | None = None,
+        on_skipped: Callable[[list[tuple[Path, Path]]], None] | None = None,
     ) -> list[ScrapeResult]:
         """扫描多个目录，合并结果。
 
         - 空项会被忽略
         - 目录按 ``resolve()`` 规范化后去重
-        - 嵌套目录（A 包含 B）只扫 A，B 静默跳过并写日志
+        - 嵌套目录（A 包含 B）只扫 A，B 跳过并写日志
+          （调用方想告诉用户，就传 ``on_skipped`` 收那份清单）
         - 文件按绝对路径去重（防软链接、重复目录等）
         - ``on_total`` 在收集完成后一次性回调，进度条分母稳定
         """
@@ -216,6 +219,8 @@ class CodeExtractor:
         for nested, parent in skipped:
             logger.info(
                 "检测到嵌套目录 %s（已被 %s 覆盖），自动跳过", nested, parent)
+        if on_skipped is not None and skipped:
+            on_skipped(skipped)
 
         candidates: list[Path] = []
         seen: set[str] = set()
@@ -261,7 +266,7 @@ class CodeExtractor:
                 continue
         return candidates
 
-    def _process_one(self, path: Path) -> Optional[ScrapeResult]:
+    def _process_one(self, path: Path) -> ScrapeResult | None:
         """处理单个文件；读取失败时返回 None（已写日志）。"""
         try:
             code = self.extract(path.name)

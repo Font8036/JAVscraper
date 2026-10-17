@@ -420,27 +420,22 @@ def test_follow_video_flat_mode_does_not_look_in_target(dirs):
     assert op.dst == dst / "中文字幕.srt"              # 没有跟随
 
 
-def test_follow_video_target_lookup_is_cached(dirs, monkeypatch):
-    """相同番号的多个附件只查一次目标目录。"""
+def test_follow_video_target_lookup_is_cached(dirs):
+    """同一番号的第二个附件不会再读一遍目标目录（读到的是缓存结果）。"""
     src, dst, _ = dirs
     make_file(dst / "ABP-123" / "video.mp4")
-    s1 = make_file(src / "a.srt")
-    s2 = make_file(src / "b.srt")
-
-    calls: list[str] = []
-    original = FileProcessor._find_target_video
-
-    def counted(self, code, *, cache):
-        calls.append(code)
-        return original(self, code, cache=cache)
-
-    monkeypatch.setattr(FileProcessor, "_find_target_video", counted)
-
+    make_file(src / "a.srt")
+    make_file(src / "b.srt")
     proc = make_processor(dst, attachment_naming="跟随视频命名")
-    planned = proc.plan([result(s1, "ABP-123"), result(s2, "ABP-123")])
 
-    assert len(calls) == 1                          # 第二次命中缓存
-    assert all(p.dst.parent == dst / "ABP-123" for p in planned)
+    cache: dict[str, Path | None] = {}
+    first = proc._find_target_video("ABP-123", cache=cache)
+    assert first is not None
+
+    # 目标目录里又多出一个视频：没有缓存的话，再查就会变成"多个视频 → 不跟"
+    make_file(dst / "ABP-123" / "video2.mp4")
+    second = proc._find_target_video("ABP-123", cache=cache)
+    assert second == first
 
 
 # ---------------------------------------------------------------------------

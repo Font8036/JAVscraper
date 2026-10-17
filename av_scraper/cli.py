@@ -219,6 +219,8 @@ def apply_overrides(pcfg: ProcessorConfig, args: argparse.Namespace) -> Processo
         overrides["video_naming"] = _VIDEO_NAMING[args.video_naming]
     if getattr(args, "attachment_naming", None):
         overrides["attachment_naming"] = _ATTACHMENT_NAMING[args.attachment_naming]
+    if getattr(args, "part_naming", None) is not None:
+        overrides["multipart_naming"] = args.part_naming
     if getattr(args, "on_conflict", None):
         overrides["existing_file_handling"] = _CONFLICT_HANDLING[args.on_conflict]
     return replace(pcfg, **overrides) if overrides else pcfg
@@ -285,7 +287,7 @@ def _take(items: Sequence[Any], limit: int) -> list[Any]:
 def format_scan_summary(
     results: Sequence[ScrapeResult],
     *,
-    directory: Path,
+    directories: Sequence[Path],
     limit: int = DEFAULT_LIMIT,
     verbose: bool = False,
 ) -> list[str]:
@@ -295,8 +297,14 @@ def format_scan_summary(
     original = total - direct - inherited
     ratio = (direct + inherited) / total * 100 if total else 0.0
 
-    lines = align_rows([
-        ("扫描目录", str(directory)),
+    # 多个目录时，续行用空标签，靠列对齐落到同一列
+    dir_rows: list[tuple[str, str]] = (
+        [("扫描目录", str(directories[0]))]
+        + [("", str(d)) for d in directories[1:]]
+        if directories
+        else [("扫描目录", "(未指定)")]
+    )
+    lines = align_rows(dir_rows + [
         ("文件总数", str(total)),
         ("直接提取", str(direct)),
         ("父目录继承", str(inherited)),
@@ -330,6 +338,7 @@ def format_plan_preview(
     recognized: int,
     total: int,
     only: set[str],
+    part_naming: bool = False,
     limit: int = DEFAULT_LIMIT,
     verbose: bool = False,
 ) -> list[str]:
@@ -337,6 +346,7 @@ def format_plan_preview(
         ("输入 JSON", str(json_path)),
         ("目标目录", target or "(未设置)"),
         ("文件冲突处理", conflict),
+        ("分段命名", "启用" if part_naming else "关闭"),
     ])
     lines += [
         "",
@@ -355,6 +365,7 @@ def format_plan_preview(
             f"  {pad_display(_PLAN_STATUS_LABEL[s], width)}  {counts[s]}" for s in labels
         ]
 
+    # 多分段改名会体现在 dst 上（见 processor._plan_by_code），-v 的明细里能看到
     overwrites = [p for p in planned if p.status == "overwrite"]
     if overwrites:
         shown = _take(overwrites, limit)
@@ -467,12 +478,17 @@ def format_config(cfg: AppConfig) -> list[str]:
 # 子命令
 # ---------------------------------------------------------------------------
 def cmd_scan(args: argparse.Namespace, ui: Console) -> int:
-    directory = Path(args.directory).expanduser()
-    if not directory.exists():
-        ui.err_line(f"[错误] 目录不存在：{directory}")
-        return EXIT_FAILED
-    if not directory.is_dir():
-        ui.err_line(f"[错误] 不是目录：{directory}")
+    directories = [Path(d).expanduser() for d in args.directories]
+    # 先整体校验：有一个不对就一个都不扫，免得用户以为全都扫过了
+    bad = False
+    for d in directories:
+        if not d.exists():
+            ui.err_line(f"[错误] 目录不存在：{d}")
+            bad = True
+        elif not d.is_dir():
+            ui.err_line(f"[错误] 不是目录：{d}")
+            bad = True
+    if bad:
         return EXIT_FAILED
 
     cfg = load_config_or_fail(ui, args)
@@ -484,11 +500,15 @@ def cmd_scan(args: argparse.Namespace, ui: Console) -> int:
     extractor = CodeExtractor(scfg)
     if ui.verbose:
         ui.out_line(f"递归处理子目录：{'是' if recursive else '否'}")
+    nested: list[tuple[Path, Path]] = []
     try:
-        results = extractor.scan_directory(directory, recursive=recursive)
+        results = extractor.scan_directories(
+            directories, recursive=recursive, on_skipped=nested.extend)
     except OSError as e:
         ui.err_line(f"[错误] 扫描失败：{e}")
         return EXIT_FAILED
+    for skipped_dir, parent in nested:
+        ui.err_line(f"[提醒] {skipped_dir} 在 {parent} 里面，已跳过（避免重复扫描）")
 
     exit_code = EXIT_OK
     written: list[Path] = []
@@ -511,7 +531,7 @@ def cmd_scan(args: argparse.Namespace, ui: Console) -> int:
             [to_dict(r) for r in results], ensure_ascii=False, indent=2))
 
     ui.out_lines(format_scan_summary(
-        results, directory=directory, limit=args.limit, verbose=args.verbose))
+        results, directories=directories, limit=args.limit, verbose=args.verbose))
     if written:
         ui.out_line("")
         ui.out_lines([f"已保存  {p}" for p in written])
@@ -570,6 +590,7 @@ def cmd_move(args: argparse.Namespace, ui: Console) -> int:
         recognized=recognized,
         total=len(results),
         only=only,
+        part_naming=pcfg.multipart_naming,
         limit=args.limit,
         verbose=args.verbose,
     ))
@@ -775,7 +796,8 @@ def build_parser(prog: str = "javscraper") -> argparse.ArgumentParser:
     scan = sub.add_parser(
         "scan", parents=[common], help="扫描目录、提取番号、导出结果",
         description="扫描目录，从文件名里提取番号，并导出 JSON / TXT / CSV。")
-    scan.add_argument("directory", metavar="目录", help="要扫描的目录")
+    scan.add_argument("directories", metavar="目录", nargs="+",
+                      help="要扫描的目录，可以给多个（有嵌套时只扫外层）")
     scan.add_argument("-r", "--recursive", action=argparse.BooleanOptionalAction,
                       default=None, help="递归处理子目录（默认取配置）")
     scan.add_argument("-o", "--output-dir", metavar="DIR",
@@ -804,6 +826,9 @@ def build_parser(prog: str = "javscraper") -> argparse.ArgumentParser:
     move.add_argument("--attachment-naming", choices=sorted(_ATTACHMENT_NAMING),
                       metavar="{keep,code,follow}",
                       help="附件命名方式（follow 跟随同目录视频）")
+    move.add_argument("--part-naming", action=argparse.BooleanOptionalAction,
+                      default=None,
+                      help="多分段视频按 -part1/-part2 顺序改名（默认取配置）")
     move.add_argument("--on-conflict", choices=sorted(_CONFLICT_HANDLING),
                       metavar="{skip,overwrite,rename}",
                       help="目标已存在同名文件时怎么办")

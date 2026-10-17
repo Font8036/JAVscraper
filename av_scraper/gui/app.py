@@ -185,9 +185,9 @@ class App(tk.Tk):
 
     def _auto_check_worker(self) -> None:
         # 延迟 import，避免 App 初始化时的循环依赖
-        from .dialogs import fetch_latest_release, is_newer
+
         from .. import __version__
-        import webbrowser
+        from .dialogs import fetch_latest_release, is_newer
 
         release = fetch_latest_release()
         if release is None:
@@ -201,7 +201,7 @@ class App(tk.Tk):
         if is_newer(remote, __version__):
             notes = (release.get("body") or "").strip()
             html_url = release.get("html_url", "https://github.com/Font8036/JAVscraper/releases")
-            
+
             # 切回主线程弹窗
             self.after(0, lambda: self._show_update_prompt(remote, notes, html_url))
         else:
@@ -210,8 +210,8 @@ class App(tk.Tk):
 
     def _show_update_prompt(self, remote: str, notes: str, url: str) -> None:
         """主线程：弹窗提示有新版本。"""
-        from tkinter import messagebox
         import webbrowser
+        from tkinter import messagebox
 
         # 如果用户正在做其他事，弹窗可能稍微打断，但这是用户主动开启的功能
         ans = messagebox.askyesno(

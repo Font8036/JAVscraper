@@ -71,7 +71,6 @@ JAVscraper/
 ├── run.py                          # 核心版入口（不带参数=图形界面，带参数=命令行）
 ├── run_full.py                     # 完整版入口（内置所有插件）
 ├── run_cli.py                      # 控制台版入口（只打命令行，不含 Tk）
-├── JAVscraper_cli_v0.4.5_win64.spec  # 控制台版打包配置（产物 JAVscraper_cli.exe）
 ├── 清除缓存.bat                     # 递归清理 __pycache__
 │
 ├── config.json                     # 核心配置，首次运行自动生成
@@ -241,20 +240,30 @@ class ScrapeResult:
 **扫描接口**：
 
 ```python
-def scan_directory(
+def scan_directories(          # GUI 与 CLI 都走这个入口
+    self,
+    directories: Sequence[str | Path],
+    recursive: bool | None = None,
+    progress: Callable[[ScrapeResult], None] | None = None,
+    on_total: Callable[[int], None] | None = None,
+    on_skipped: Callable[[list[tuple[Path, Path]]], None] | None = None,
+) -> list[ScrapeResult]: ...
+
+def scan_directory(            # 单目录包装
     self,
     directory: str | Path,
-    recursive: Optional[bool] = None,
-    progress: Optional[Callable[[ScrapeResult], None]] = None,
-    on_total: Optional[Callable[[int], None]] = None,
-) -> list[ScrapeResult]:
+    recursive: bool | None = None,
+    progress: Callable[[ScrapeResult], None] | None = None,
+    on_total: Callable[[int], None] | None = None,
+) -> list[ScrapeResult]: ...
 ```
 
 **注意点**：
 
 - `rglob` / `glob` 返回的迭代器**只能消费一次**。当前实现先收集候选列表再逐个处理，两轮循环分别用 `iterator` 和 `candidates`。**这是一个容易踩的坑**——曾导致扫描结果为空；
 - 总数回调 `on_total` 在收集完成后触发一次；单文件回调 `progress` 在每个文件处理完后触发；
-- 从父目录继承番号：文件名匹配失败时，尝试用父文件夹名再匹配一次。这是为了处理 `ABP-123/xxx.mp4` 这种"文件夹带番号、文件名不带"的结构。
+- **多目录先裁剪再扫**：`scan_directories` 会规范化路径、去重，并把被上级目录包住的目录剔掉，一次性通过 `on_skipped(pairs)` 报出去——`pairs` 是 `list[tuple[Path, Path]]`，每项是 `(被跳过的目录, 覆盖它的目录)`（GUI 写日志、CLI 每个打一行 stderr 提醒）。不这么做，同一批文件会被扫两遍，`-partN` 编号和"父目录继承"都会算错；
+- 从父目录继承番号：文件名匹配失败时，尝试用父文件夹名再匹配一次。这是为了处理 `ABP-123/xxx.mp4` 这种"文件夹带番号、文件名不带"的结构。继承来的结果同样算 `status == "extracted"`（`inherited=True` 只是标记来源），所以移动阶段照常处理。
 
 **扩展识别规则**：
 
@@ -478,6 +487,8 @@ def log_dir() -> Path: ...
 - **提示语写 stderr、数据写 stdout**。`--json -` 时连摘要都挪到 stderr，管道里拿到的就是纯 JSON（可以直接喂给别的工具）。
 - **边移动边落盘记录**：`execute(on_moved=...)` 每成功一个回调一次，命令行每 200 个写一次记录。中途 Ctrl+C 时已经移动的文件仍然在记录里，可以 `undo`——这是"命令行比界面更容易被打断"换来的要求。
 - 命令行**不写配置**（`config` 是只读子命令）。目标目录的缺省值取 `target_directory`，为空则取 `recent_target_dirs[0]`，与界面预填的逻辑保持一致。
+- **`scan` 一次可以给多个目录**：先把所有目录校验一遍（有一个不是目录就一个都不扫、退出码 1），再交给核心的 `scan_directories`；嵌套目录由 `on_skipped` 回调告知，命令行在 stderr 打「……在……里面，已跳过」——这是提醒，不是错误，退出码不受影响。
+- **分段命名用 `--part-naming` / `--no-part-naming` 覆盖配置**（默认跟 `multipart_naming`）。改名结果落在 `PlannedOperation.dst` 上，所以 `-v` 的明细里能直接看到 `XXX-cd1.mp4 → ABP-123-part1.mp4`；预览摘要只多一行「分段命名 启用/关闭」，不另开一个清单。
 
 ### texts.py
 
@@ -974,22 +985,21 @@ pyinstaller -D -w -n JAVscraper_full_win64 ^
 ### 命令行版（控制台）
 
 ```cmd
-:: 用 spec（本地文件，和另外两个 spec 一样不进版本库）
-pyinstaller JAVscraper_cli_v0.4.5_win64.spec
-
-:: 等价的一条命令，spec 丢了也能照着重建
-pyinstaller -F -c -n JAVscraper_cli --icon=assets/icon.ico --paths . --clean run_cli.py
+pyinstaller -F -c -n JAVscraper_cli ^
+    --paths . ^
+    --clean ^
+    run_cli.py
 ```
 
 产物：`dist/JAVscraper_cli.exe`（约 15 MB，和核心版差不多）。
 
 | 参数 | 作用 |
 |---|---|
-| `console=True` | **和另外两个 exe 唯一的实质区别**。`-w` 的窗口子系统没有 stdout，在 cmd 里跑什么都看不到，所以命令行版必须是控制台子系统 |
+| `-c` | **和另外两个 exe 唯一的实质区别**：控制台子系统。`-w` 的窗口子系统没有 stdout，在 cmd 里跑什么都看不到 |
 | 不 `--add-data` | 命令行不读 `assets/`，也不用插件 |
 | 入口是 `run_cli.py` | 它只 import `av_scraper.cli`，不 import `gui`，所以打出来的包里没有 Tk |
 
-产物名故意不带版本号：命令行工具要反复敲、要加进 PATH，版本用 `JAVscraper_cli.exe --version` 看。
+产物名和另外两个 exe 一样不带版本号（方便加进 PATH、反复敲），版本用 `JAVscraper_cli.exe --version` 看。
 
 ### 分发
 
@@ -1083,6 +1093,8 @@ python test/gen_test_files.py --clean
 - [ ] 插件错误处理：手动删掉某个插件的依赖，应显示错误标签页而非崩溃
 - [ ] 命令行中文显示：在 cmd（cp936）里跑 `JAVscraper_cli.exe --help` 和 `scan <目录>`，中文应正常显示，不能是乱码、更不能崩
 - [ ] 命令行与界面共用记录：命令行 `move ... -y` 之后，回界面点「撤回移动」应能把文件还原
+- [ ] 命令行多目录：`JAVscraper_cli.exe scan D:\a D:\a\sub` 应只扫一遍，并在 stderr 提示「……在……里面，已跳过」
+- [ ] 命令行分段命名：`move ... -y --part-naming` 后分段文件应成 `-part1`、`-part2`，附件跟随第一段；`undo` 后原文件名应恢复
 
 ### 单元测试
 

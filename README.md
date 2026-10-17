@@ -435,7 +435,7 @@ JavDB 信息   字幕猫
 命令行版和界面版**是同一个程序、共用同一份配置**，放在同一个目录里就行：
 
 ```
-JAVscraper_core_v0.4.5_win64.exe   ← 双击，打开界面
+JAVscraper_core_win64.exe          ← 双击，打开界面
 JAVscraper_cli.exe                 ← 在 cmd / PowerShell 里用
 config.json                        ← 两者共用
 log\                               ← 两者的输出都在这里
@@ -449,6 +449,12 @@ log\                               ← 两者的输出都在这里
 ```cmd
 :: 扫描 D:\videos，结果自动存进 log\<时间戳>\（JSON + 文本报告 + CSV）
 JAVscraper_cli.exe scan D:\videos
+
+:: 一次扫多个目录（互相包含的目录只会扫一遍）
+JAVscraper_cli.exe scan D:\videos D:\downloads
+
+:: 报告换个地方放（默认 log\<时间戳>\）
+JAVscraper_cli.exe scan D:\videos --output-dir D:\reports
 
 :: 只在屏幕上看看结果，不写任何文件
 JAVscraper_cli.exe scan D:\videos --no-reports
@@ -474,6 +480,8 @@ JAVscraper_cli.exe scan D:\videos --json - > results.json
 
 未识别的文件不会被动，认出来的才参与下一步。
 
+一次扫多个目录时，「扫描目录」下面会把每个目录各列一行；某个目录如果已经在另一个目录里面，命令行只在 stderr 提醒一句「……在……里面，已跳过」，不会重复扫两遍。
+
 ### 移动
 
 **先 `--dry-run` 看一遍**，它就是界面里的「预览更改」：
@@ -490,6 +498,9 @@ JAVscraper_cli.exe move results.json -t E:\sorted -y --only ABP-123,SSIS-456
 
 :: 目标已有同名文件时改成覆盖（默认是「重命名」，加 _01）
 JAVscraper_cli.exe move results.json -t E:\sorted -y --on-conflict overwrite
+
+:: 分段视频重新编号成 -part1、-part2（相当于界面里的「多视频启用 -partN 后缀」）
+JAVscraper_cli.exe move results.json -t E:\sorted -y --part-naming
 ```
 
 | 参数 | 说明 |
@@ -501,6 +512,7 @@ JAVscraper_cli.exe move results.json -t E:\sorted -y --on-conflict overwrite
 | `--folder` / `--no-folder` | 是否按番号建子文件夹（默认跟配置） |
 | `--video-naming` | `keep` 保留原文件名 / `code` 按番号命名 |
 | `--attachment-naming` | `keep` / `code` / `follow`（跟随同目录视频） |
+| `--part-naming` / `--no-part-naming` | 分段视频按 `-part1`、`-part2` 重新编号，附件跟随第一段（默认跟配置） |
 | `--on-conflict` | `skip` 跳过 / `overwrite` 覆盖 / `rename` 加 `_01`（默认跟配置） |
 
 ### 撤回

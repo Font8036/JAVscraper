@@ -1,15 +1,16 @@
 """按刮削结果移动 / 重命名 / 撤回文件。"""
 
 from __future__ import annotations
-import os
-import re
+
 import json
 import logging
+import os
+import re
 import shutil
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable
 
 from .config import ProcessorConfig
 from .defaults import DEFAULT_ATTACHMENT_EXTENSIONS, DEFAULT_VIDEO_EXTENSIONS
@@ -81,7 +82,7 @@ class FileProcessor:
 
     def plan(self, results: list[dict]) -> list[PlannedOperation]:
         extracted = [r for r in results if r.get("status") == "extracted"]
-        
+
         # 预处理：找出所有支持多分段重命名的视频
         self._multipart_map = {}
         if self.config.multipart_naming:
@@ -97,7 +98,7 @@ class FileProcessor:
 
     def _extract_multipart(self, items: list[dict], code: str) -> dict[str, str]:
         """尝试提取多分段视频的 -partN 重命名映射。
-        
+
         成功返回 {绝对路径: 新文件名}，失败返回 {}（整组放弃）。
         """
         if not self.config.multipart_naming:
@@ -159,7 +160,7 @@ class FileProcessor:
         for r in extracted:
             src = Path(r["file_path"])
             code = r["extracted_code"]
-            
+
             if str(src) in self._multipart_map:
                 name = self._multipart_map[str(src)]
                 if self.config.move_to_extracted_folder:
@@ -170,7 +171,7 @@ class FileProcessor:
                 target = self._target_path(
                     src, code, is_attachment=self._is_attachment(src),
                 )
-                
+
             final, status = self._resolve_conflict(target, taken)
             planned.append(PlannedOperation(
                 src=src,
@@ -203,7 +204,7 @@ class FileProcessor:
 
         taken: set[str] = set()
         planned: list[PlannedOperation] = []
-        target_video_cache: dict[str, Optional[Path]] = {}
+        target_video_cache: dict[str, Path | None] = {}
 
         def _emit(src: Path, target: Path, code: str) -> None:
             final, status = self._resolve_conflict(target, taken)
@@ -215,7 +216,7 @@ class FileProcessor:
 
         for items in by_dir.values():
             videos = [r for r in items if self._is_video(r["file_path"])]
-            
+
             # 核心修改：如果开启了多分段且成功应用，取 part1 作为主视频
             main_video = None
             if len(videos) == 1:
@@ -231,7 +232,7 @@ class FileProcessor:
                             break
 
             # 主视频先规划，拿到目标路径
-            video_target: Optional[Path] = None
+            video_target: Path | None = None
             if main_video is not None:
                 code = main_video["extracted_code"]
                 src = Path(main_video["file_path"])
@@ -252,7 +253,7 @@ class FileProcessor:
                 src = Path(r["file_path"])
                 code = r["extracted_code"]
                 is_att = self._is_attachment(src)
-                
+
                 # 如果当前文件也在 _multipart_map 里（即其它 part），按 part 规划
                 if str(src) in self._multipart_map:
                     name = self._multipart_map[str(src)]
@@ -281,8 +282,8 @@ class FileProcessor:
         return Path(path).suffix.lower() in self._attachment_exts
 
     def _find_target_video(
-        self, code: str, *, cache: dict[str, Optional[Path]],
-    ) -> Optional[Path]:
+        self, code: str, *, cache: dict[str, Path | None],
+    ) -> Path | None:
         """在目标目录的对应番号文件夹里找唯一视频。
 
         找不到、找到多个、平铺模式、目标目录不存在 —— 一律返回 None。
@@ -291,7 +292,7 @@ class FileProcessor:
         if code in cache:
             return cache[code]
 
-        result: Optional[Path] = None
+        result: Path | None = None
         if (self.config.move_to_extracted_folder
                 and self.config.target_directory):
             folder = Path(self.config.target_directory) / code
@@ -313,12 +314,12 @@ class FileProcessor:
         self, src: Path, code: str, *, is_attachment: bool = False,
     ) -> Path:
         if is_attachment:
-            # follow_video 不会走到这里（plan() 已分派到 _plan_follow_video）
-            mode = self.config.attachment_naming
-            if mode == "保留原文件名":
-                name = src.name
-            else:                       # "code"
+            # 走到这里的只有"保留原文件名"和"跟随视频命名"的兜底
+            # （跟随模式找不到/找到多个视频时退回保留原名）
+            if self.config.attachment_naming == "按提取码命名":
                 name = f"{code}{src.suffix}"
+            else:
+                name = src.name
         else:
             if self.config.video_naming == "保留原文件名":
                 name = src.name

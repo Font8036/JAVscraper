@@ -26,8 +26,10 @@
 
 示例：
    JAVscraper_cli.exe scan D:\videos --no-reports
+   JAVscraper_cli.exe scan D:\videos D:\downloads        （一次扫多个目录）
    JAVscraper_cli.exe move results.json -t E:\sorted --dry-run
    JAVscraper_cli.exe move results.json -t E:\sorted -y
+   JAVscraper_cli.exe move results.json -t E:\sorted -y --part-naming   （分段视频编成 -part1/-part2）
    JAVscraper_cli.exe undo -y
    JAVscraper_cli.exe --help
    JAVscraper_cli.exe move --help

@@ -25,7 +25,7 @@ from pathlib import Path
 
 import pytest
 
-from av_scraper import cli
+from av_scraper import __version__, cli
 from av_scraper.cli import Console, display_width, main, pad_display
 from av_scraper.processor import FileProcessor, MoveOperation
 
@@ -253,6 +253,52 @@ def test_scan_missing_directory_exits_1(work_dir):
     assert res.out == ""
 
 
+def test_scan_accepts_multiple_directories(work_dir):
+    first = work_dir / "a"
+    second = work_dir / "b"
+    make_file(first / "ABP-123.mp4")
+    make_file(second / "SSIS-001.mkv")
+    out = work_dir / "out"
+
+    res = run_cli(["scan", str(first), str(second), "-o", str(out),
+                   *config_args(work_dir)])
+
+    assert res.code == 0
+    assert str(first) in res.out and str(second) in res.out
+    saved = json.loads(
+        (only_dir(out) / "scraper_results.json").read_text(encoding="utf-8"))
+    assert {Path(e["file_path"]).name for e in saved} == {"ABP-123.mp4", "SSIS-001.mkv"}
+
+
+def test_scan_skips_nested_directory_with_a_notice(work_dir):
+    outer = work_dir / "src"
+    inner = outer / "inner"
+    make_file(inner / "ABP-123.mp4")
+    out = work_dir / "out"
+
+    res = run_cli(["scan", str(outer), str(inner), "-o", str(out),
+                   *config_args(work_dir)])
+
+    assert res.code == 0
+    assert "已跳过" in res.err and str(inner) in res.err
+    saved = json.loads(
+        (only_dir(out) / "scraper_results.json").read_text(encoding="utf-8"))
+    assert len(saved) == 1                    # 同一个文件不会被扫两遍
+
+
+def test_scan_with_one_bad_directory_scans_nothing(work_dir):
+    good = work_dir / "src"
+    make_file(good / "ABP-123.mp4")
+    out = work_dir / "out"
+
+    res = run_cli(["scan", str(good), str(work_dir / "nope"), "-o", str(out),
+                   *config_args(work_dir)])
+
+    assert res.code == 1
+    assert "目录不存在" in res.err
+    assert not out.exists()                   # 有一个目录不对就一个都不扫
+
+
 def test_scan_quiet_prints_nothing_on_success(work_dir):
     src = work_dir / "src"
     make_file(src / "ABP-123.mp4")
@@ -358,6 +404,43 @@ def test_move_video_naming_code_renames(work_dir):
 
     assert res.code == 0
     assert (target / "ABP-123" / "ABP-123.mp4").exists()
+
+
+def test_move_part_naming_shows_up_in_the_preview(work_dir):
+    src = work_dir / "src"
+    first = make_file(src / "AAAA-111-cd1.mp4", "aaaa")
+    second = make_file(src / "AAAA-111-cd2.mp4", "bbbb")   # 大小一致才配成一组
+    results = write_results(work_dir / "results.json", [
+        entry(first, "AAAA-111"), entry(second, "AAAA-111")])
+
+    res = run_cli(["move", str(results), "-t", str(work_dir / "dst"),
+                   "--part-naming", "--video-naming", "code", "-v", "--dry-run",
+                   *config_args(work_dir)])
+
+    assert res.code == 0
+    assert "分段命名" in res.out and "启用" in res.out
+    # 改名结果体现在目标路径上，-v 的明细里能直接看到
+    assert "AAAA-111-part1.mp4" in res.out
+    assert "AAAA-111-part2.mp4" in res.out
+    assert first.exists() and second.exists()          # --dry-run 不动文件
+
+
+def test_move_part_naming_renames_files(work_dir):
+    src = work_dir / "src"
+    first = make_file(src / "AAAA-111-cd1.mp4", "aaaa")
+    second = make_file(src / "AAAA-111-cd2.mp4", "bbbb")
+    results = write_results(work_dir / "results.json", [
+        entry(first, "AAAA-111"), entry(second, "AAAA-111")])
+    target = work_dir / "dst"
+
+    res = run_cli(["move", str(results), "-t", str(target), "--folder",
+                   "--part-naming", "--video-naming", "code", "-y",
+                   *config_args(work_dir)])
+
+    assert res.code == 0
+    assert (target / "AAAA-111" / "AAAA-111-part1.mp4").exists()
+    assert (target / "AAAA-111" / "AAAA-111-part2.mp4").exists()
+    assert not first.exists() and not second.exists()
 
 
 def test_move_only_filters_and_is_case_insensitive(work_dir):
@@ -699,7 +782,7 @@ def test_version_flag():
         main(["--version"])
 
     assert excinfo.value.code == 0
-    assert "0.4.5" in out.getvalue()
+    assert __version__ in out.getvalue()
 
 
 def test_unknown_subcommand_exits_2():
@@ -738,7 +821,7 @@ def test_no_args_still_launches_the_gui(monkeypatch):
 
 def test_args_are_dispatched_to_the_cli(monkeypatch):
     import av_scraper.__main__ as entry   # type: ignore[attr-defined]
-    
+
     monkeypatch.setattr(
         entry, "launch_gui", lambda: pytest.fail("带参数时不应该启动图形界面"))
     out = io.StringIO()
@@ -746,4 +829,4 @@ def test_args_are_dispatched_to_the_cli(monkeypatch):
         entry.main(["--version"])
 
     assert excinfo.value.code == 0
-    assert "0.4.5" in out.getvalue()
+    assert __version__ in out.getvalue()

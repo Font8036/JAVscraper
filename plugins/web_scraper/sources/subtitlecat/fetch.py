@@ -75,7 +75,13 @@ async def scrape_subtitlecat(
         browser = await p.chromium.launch(
             headless=not config.show_browser,
             channel=config.browser_channel or None,
-            args=["--no-sandbox", "--disable-dev-shm-usage"],
+            args=[
+                "--no-sandbox", "--disable-dev-shm-usage",
+                # 关键：防止浏览器把后台等待翻译的标签页里的 JS 定时器降频
+                "--disable-background-timer-throttling",
+                "--disable-backgrounding-occluded-windows",
+                "--disable-renderer-backgrounding",
+            ],
         )
 
         # 加载登录状态
@@ -126,13 +132,21 @@ async def scrape_subtitlecat(
                 # 记录需要等待翻译的
                 if record["status"] == "等待翻译":
                     pending[idx] = {
-                        "href": record["_href"],
-                        "deadline": time.monotonic() + max(
-                            1, config.translate_timeout),
+                        "page": record.pop("_page"),  # 把挂起的页面存在这里
+                        "deadline": time.monotonic() + max(1, config.translate_timeout),
                     }
+                    # 原页面被征用，新开一个页面继续处理下一个目标
+                    page = await context.new_page()
+                    page.set_default_timeout(config.page_timeout_ms)
 
                 if on_progress:
                     on_progress(idx, keyword, record, record["status"])
+
+                # 返回搜索页
+                try:
+                    await page.goto(config.base_url, wait_until="load")
+                except Exception:
+                    pass
 
             # ============================================================
             # 后续轮：处理等待翻译
@@ -147,56 +161,57 @@ async def scrape_subtitlecat(
                     keyword = targets[idx]
                     record = records[idx]
                     expired = time.monotonic() > item["deadline"]
+                    wait_page = item["page"]
 
-                    # ---------- 先做一次尝试（不管是否已超时）----------
                     status = "下载失败"
                     try:
-                        full_url = urljoin(config.base_url, item["href"])
-                        await page.goto(
-                            full_url,
-                            wait_until="domcontentloaded",
-                            timeout=config.page_timeout_ms * 2,
-                        )
-                        status = await _try_download_or_translate(
-                            page, keyword, config, log,
-                        )
+                        if wait_page.is_closed():
+                            status = "下载失败（页面被关闭）"
+                        else:
+                            # 不刷新，只检查按钮
+                            status = await _check_translate_status(
+                                wait_page, keyword, config, log,
+                            )
                     except Exception as e:
                         log(f"{keyword}: 重试异常：{e}")
 
                     # ---------- 按结果决定下一步 ----------
                     if status == "下载成功":
-                        # 超时与否都算成功
                         if expired:
                             log(f"{keyword}: 超时后本次尝试成功下载")
                         record["status"] = "下载成功"
                         if on_progress:
                             on_progress(idx, keyword, record, record["status"])
-
+                        await _safe_close_page(wait_page)   # 翻译完了，关掉标签页
                     elif status == "等待翻译":
-                        # 这次还是只有翻译按钮：这时才判超时
                         if expired:
                             record["status"] = "下载失败（翻译超时）"
                             log(f"{keyword}: 等待翻译超时")
                             if on_progress:
                                 on_progress(idx, keyword, record, record["status"])
+                            await _safe_close_page(wait_page)
                         else:
                             next_pending[idx] = item
-
                     else:
-                        # 下载失败 / 其他 → 直接失败
                         record["status"] = status
                         if on_progress:
                             on_progress(idx, keyword, record, record["status"])
+                        await _safe_close_page(wait_page)
 
                 pending = next_pending
 
-            # 未完成的标记已停止
-            for idx in pending:
+            # 未完成的标记已停止并关闭页面
+            for idx, item in pending.items():
                 records[idx]["status"] = "已停止"
+                await _safe_close_page(item["page"])
 
             return records
 
         finally:
+            # 防止异常退出导致有遗留标签页没关
+            for item in pending.values():
+                await _safe_close_page(item.get("page"))
+            # ... 原有的 context.close() 等代码保持不变
             try:
                 await context.close()
             except Exception:
@@ -301,6 +316,8 @@ async def _process_one(
         record["status"] = "下载成功"
     else:
         record["status"] = status
+        if status == "等待翻译":
+            record["_page"] = page  # ← 新增：把这个挂起的页面传给外层
 
     return record
 
@@ -426,6 +443,30 @@ async def _try_download_or_translate(
 
     return "下载失败"
 
+async def _check_translate_status(
+    page,
+    keyword: str,
+    config: SubtitleCatConfig,
+    log: LogFn,
+) -> str:
+    """检查已提交翻译的页面，不刷新页面，只查下载按钮是否出现。"""
+    try:
+        dl = await page.query_selector("#download_zh-CN")
+        if dl is not None and await dl.is_visible():
+            return await _do_download(page, keyword, config, log)
+    except Exception:
+        pass
+    return "等待翻译"
+
+
+async def _safe_close_page(page) -> None:
+    """安全关闭页面。"""
+    if page is not None:
+        try:
+            if not page.is_closed():
+                await page.close()
+        except Exception:
+            pass
 
 async def _do_download(
     page,

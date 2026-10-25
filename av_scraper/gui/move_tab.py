@@ -79,15 +79,21 @@ class MoveTab(ttk.Frame):
         self.stats_var = tk.StringVar(value="尚未预览")
         ttk.Label(row3, textvariable=self.stats_var).pack(side="left", padx=12)
         # 警示：跨盘移动无法暂停
-        warn = ttk.Label(
+        self.warn_label = ttk.Label(
             self,
             text="⚠ 移动开始后无法暂停。请确保源文件与目标目录位于同一硬盘，"
                  "跨盘移动会显著变慢。",
             foreground="#c77b00",
-            wraplength=800,
             justify="left",
         )
-        warn.pack(fill="x", pady=(0, 6))
+        self.warn_label.pack(fill="x", pady=(0, 6))
+
+        # 动态调整折行宽度：让文字始终跟随面板宽度
+        def _on_resize(event):
+            # 减 10 是为了留一点边距，防止文字贴边
+            self.warn_label.configure(wraplength=max(100, event.width - 10))
+        
+        self.bind("<Configure>", _on_resize)
 
         # 状态映射
         def _status_text(op) -> str:

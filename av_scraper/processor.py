@@ -141,7 +141,17 @@ class FileProcessor:
         if self.config.video_naming == "按提取码命名":
             base = code
         else:
-            base = lcp.rstrip("-_ .")
+            # 保留原名：合并公共前缀和后缀，并处理边界的分隔符
+            base = lcp
+            if lcs:
+                if base and base[-1] in "-_ ." and lcs[0] in "-_ .":
+                    # 两边都有分隔符，保留前缀的，去掉后缀开头的
+                    base += lcs.lstrip("-_ .")
+                else:
+                    base += lcs
+            # 清理首尾可能多余的分隔符
+            base = base.strip("-_ .")
+            
             if not base:
                 base = code
 

@@ -51,9 +51,9 @@ class ConfigWindow(tk.Toplevel):
             pass
 
         # ---- 按 DPI × user_scale 计算窗口尺寸 ----
-        w, h = scale_size(self, user_scale, 860, 640)
+        w, h = scale_size(self, user_scale, 660, 480)
         self.geometry(f"{w}x{h}")
-        mw, mh = scale_size(self, user_scale, 660, 480)
+        mw, mh = scale_size(self, user_scale, 330, 240)
         self.minsize(mw, mh)
 
         self._pages: dict[str, ConfigPage] = {}

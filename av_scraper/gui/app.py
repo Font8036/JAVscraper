@@ -33,7 +33,7 @@ class App(tk.Tk):
         self.withdraw()
         self.title("JAVscraper")
         self.geometry("1180x820")
-        self.minsize(960, 640)
+        self.minsize(480, 320)
         set_window_icon(self)      # ← 就这一行
         self.config_path = config_path
         self._first_run = not config_path.exists()   # ← 新增：必须在 load 之前
@@ -64,11 +64,11 @@ class App(tk.Tk):
         apply_ui_scaling(self, user_scale)
 
         # 2. 窗口大小等比放大
-        w, h = scale_size(self, user_scale, 1180, 820)
+        w, h = scale_size(self, user_scale, 720, 480)
         self.geometry(centered_geometry(self, w, h))
 
         # 3. 最小尺寸也放大
-        mw, mh = scale_size(self, user_scale, 960, 640)
+        mw, mh = scale_size(self, user_scale, 480, 320)
         self.minsize(mw, mh)
 
     def _set_window_icon(self) -> None:

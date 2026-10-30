@@ -121,25 +121,31 @@ class MoveTab(ttk.Frame):
             if op.status == "overwrite":
                 return ("overwrite",)
             return ()
+        
+        # 先获取配置里之前保存的权重
+        saved_weights = self.app.app_config.table_column_weights.get("move_tab", {})
 
         self.result_tree = SortableTreeview(
             self,
+            table_id="move_tab",
+            on_save_weights=self._save_column_weights,
+            initial_weights=self.app.app_config.table_column_weights.get("move_tab", {}), # ← 加在这里
             height=self.app.app_config.table_height,
             columns=[
-                Column("__check__", "", 40,
+                Column("__check__", "", width=40,
+                       auto_stretch=False,      # ← 明确告诉组件：我是固定宽度
                        kind="checkbox", anchor="center",
                        sortable=False, searchable=False),
-                Column("code", "番号", 130,
+                Column("code", "番号", width=130, weight=1.0,
                        display=lambda op: op.extracted_code,
                        sort=lambda op: op.extracted_code.lower()),
-                Column("src", "源文件", 320,
+                Column("src", "源文件", width=320, weight=3.0,
                        display=lambda op: str(op.src),
                        sort=lambda op: str(op.src).lower()),
-                Column("dst", "目标路径", 460,
+                Column("dst", "目标路径", width=460, weight=4.5, # 占比最大
                        display=lambda op: str(op.dst),
-                       sort=lambda op: str(op.dst).lower(),
-                       stretch=True),
-                Column("status", "状态", 140,
+                       sort=lambda op: str(op.dst).lower()),
+                Column("status", "状态", width=140, weight=1.2,
                        display=_status_text,
                        sort=_status_rank),
             ],
@@ -157,6 +163,16 @@ class MoveTab(ttk.Frame):
         ttk.Label(self, text="日志:").pack(anchor="w", pady=(8, 0))
         self.log = tk.Text(self, height=self.app.app_config.log_height, wrap="none", state="disabled")
         self.log.pack(fill="both")
+
+    def _save_column_weights(self, weights: dict[str, float]) -> None:
+        """保存表格列宽比例到配置文件。"""
+        if "table_column_weights" not in self.app.app_config.__dict__:
+            return
+        self.app.app_config.table_column_weights["move_tab"] = weights
+        try:
+            self.app.app_config.save(self.app.config_path)
+        except OSError:
+            pass
 
     def _attach_logger(self) -> None:
         if getattr(self, "_logger_attached", False):

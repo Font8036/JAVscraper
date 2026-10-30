@@ -276,6 +276,10 @@ class AppConfig:
         default_factory=ProcessorConfig,
         metadata={"hidden": True},
     )
+    table_column_weights: dict[str, dict[str, float]] = field(
+        default_factory=dict,
+        metadata={"hidden": True},
+    )
     confirm_on_close: bool = field(
         default=True,
         metadata={

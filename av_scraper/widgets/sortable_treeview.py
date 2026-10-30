@@ -19,7 +19,7 @@ import tkinter as tk
 from dataclasses import dataclass
 from tkinter import font as tkfont
 from tkinter import ttk
-from typing import Any, Callable, Literal
+from typing import Any, Callable, Literal, Optional
 
 _AnchorT = Literal["nw", "n", "ne", "w", "center", "e", "sw", "s", "se"]
 _COL_ALL = "全部列"
@@ -37,6 +37,9 @@ class Column:
     key: str
     header: str
     width: int
+    weight: float = 0.0       # 新增：相对权重（>0 时优先使用）
+    # 新增：是否参与自动均分（False 表示保持给定的绝对像素宽度）
+    auto_stretch: bool = True
     display: Callable[[Any], str] = lambda _d: ""
     sort: Callable[[Any], Any] | None = None
     anchor: _AnchorT = "w"
@@ -54,6 +57,7 @@ class SortableTreeview(ttk.Frame):
         parent,
         columns: list[Column],
         *,
+        table_id: str = "",             # 新增：用于区分不同表格
         key: Callable[[Any], str] | None = None,
         row_tags: Callable[[Any], tuple[str, ...]] | None = None,
         tag_configure: dict[str, dict] | None = None,
@@ -62,10 +66,24 @@ class SortableTreeview(ttk.Frame):
         editable: bool = False,      # ← 新增：组件级总开关
         context_menu: bool = True,       # ← 新增
         filter_func: Callable[[Any, str], bool] | None = None,
+        on_save_weights: Optional[Callable[[dict[str, float]], None]] = None,  # 新增：保存回调
+        initial_weights: Optional[dict[str, float]] = None,  # ← 确保参数里有这个
         on_sort_changed: Callable[[str | None, str], None] | None = None,
         on_selection_changed: Callable[[], None] | None = None,
     ):
         super().__init__(parent)
+        # --- 新增：列宽动态计算的初始化 ---
+        self._table_id = table_id
+        self._on_save_weights = on_save_weights
+        self._resize_timer: str | None = None
+        self._save_timer = None
+        self._drag_start_widths: dict[str, int] | None = None
+        # ---- 就在这里！应用外部传进来的权重 ----
+        if initial_weights:
+            for col in columns:
+                if col.key in initial_weights:
+                    col.weight = initial_weights[col.key]
+        # ---------------------------------------
         self._columns = list(columns)
         self._columns_by_key = {c.key: c for c in columns}
         self._row_tags = row_tags or (lambda _d: ())
@@ -184,9 +202,10 @@ class SortableTreeview(ttk.Frame):
                 c.key, text=c.header,
                 command=lambda key=c.key: self._on_header_click(key),
             )
+            # 关键修改：强制 stretch=False，完全由动态列宽计算接管
             self.tree.column(
                 c.key, width=c.width, anchor=c.anchor,
-                stretch=c.stretch, minwidth=40,
+                stretch=False, minwidth=40,
             )
 
         vbar = ttk.Scrollbar(self, orient="vertical", command=self.tree.yview)
@@ -194,6 +213,8 @@ class SortableTreeview(ttk.Frame):
 
         self.tree.pack(side="left", fill="both", expand=True)
         vbar.pack(side="right", fill="y")
+        # 绑定窗口变化事件（注意绑在 self.tree 上）
+        self.tree.bind("<Configure>", self._on_tree_resize)
 
         if self._checkbox_key is not None:
             self.tree.bind("<Button-1>", self._on_tree_click, add="+")
@@ -203,6 +224,9 @@ class SortableTreeview(ttk.Frame):
             self.tree.bind("<Button-3>", self._on_right_click, add="+")
         if self._editable:
             self.tree.bind("<Double-1>", self._on_double_click, add="+")
+        # 去掉原来的 <ButtonRelease-1> 判断，改成按下和松开配对
+        self.tree.bind("<ButtonPress-1>", self._on_drag_start, add="+")
+        self.tree.bind("<ButtonRelease-1>", self._on_drag_end, add="+")
 
     def _apply_row_height(self) -> None:
         """让内容行高跟随当前字体。
@@ -871,6 +895,115 @@ class SortableTreeview(ttk.Frame):
         except Exception:
             return ""
         return "" if v is None else str(v)
+
+    def apply_weights(self, weights: dict[str, float]) -> None:
+        """从外部（配置）应用保存的权重。"""
+        if not weights:
+            return
+        for col in self._columns:
+            if col.key in weights:
+                col.weight = weights[col.key]
+        self._update_column_widths()
+
+    def _on_tree_resize(self, event) -> None:
+        """窗口或表格大小改变时，防抖后重新计算列宽。"""
+        if self._resize_timer is not None:
+            self.after_cancel(self._resize_timer)
+        # 延迟 10ms 执行，等 Tkinter 自身布局引擎完全渲染完毕后再重算
+        self._resize_timer = self.after(10, self._update_column_widths)
+
+    def _update_column_widths(self) -> None:
+        """根据权重动态计算像素宽度并应用。"""
+        available_width = self.tree.winfo_width()
+        if available_width <= 1:
+            return
+
+        # 1. 分离固定列和弹性列
+        fixed_width = 0
+        flex_cols = []
+        for c in self._columns:
+            # 只要 auto_stretch 为 False，就固定宽度
+            if not c.auto_stretch:
+                fixed_width += c.width
+                self.tree.column(c.key, width=c.width)
+            else:
+                flex_cols.append(c)
+
+        # 2. 弹性列可用的剩余宽度
+        flex_available = max(50, available_width - fixed_width)
+        
+        # 3. 计算剩余列的权重总和
+        total_weight = sum(c.weight if c.weight > 0 else c.width for c in flex_cols)
+        if total_weight <= 0:
+            return
+
+        # 4. 分配剩余列的宽度
+        used_width = 0
+        for i, c in enumerate(flex_cols):
+            w = c.weight if c.weight > 0 else c.width
+            if i == len(flex_cols) - 1:
+                new_px = flex_available - used_width
+            else:
+                new_px = int(flex_available * (w / total_weight))
+            
+            self.tree.column(c.key, width=max(new_px, 30))
+            used_width += max(new_px, 30)
+
+    def _on_drag_start(self, event) -> None:
+        """记录按下时的列宽。"""
+        self._drag_start_widths = {
+            c.key: self.tree.column(c.key, "width") for c in self._columns
+        }
+
+    def _on_drag_end(self, event) -> None:
+        """用户松开鼠标时触发，对比列宽是否改变。"""
+        if self._drag_start_widths is None:
+            return
+            
+        changed = False
+        for c in self._columns:
+            # 这里 Pylance 就能识别出 self._drag_start_widths 是 dict 了
+            if self.tree.column(c.key, "width") != self._drag_start_widths.get(c.key):
+                changed = True
+                break
+                
+        self._drag_start_widths = None
+        
+        # 只有列宽真的改变了，才防抖保存
+        if changed:
+            if self._save_timer:
+                self.after_cancel(self._save_timer)
+            self._save_timer = self.after(500, self._save_current_weights)
+
+    def _save_current_weights(self) -> None:
+        if not self._on_save_weights:
+            return
+
+        # 1. 只提取弹性列的当前宽度
+        current_widths = {}
+        for c in self._columns:
+            if c.auto_stretch:
+                current_widths[c.key] = self.tree.column(c.key, "width")
+
+        if not current_widths:
+            return
+
+        total = sum(current_widths.values())
+        if total == 0:
+            return
+
+        # 2. 转换为百分比权重
+        new_weights = {k: round(v / total, 3) for k, v in current_widths.items()}
+        
+        # 3. 同步更新内存里的 Column 对象
+        for c in self._columns:
+            if c.auto_stretch:
+                c.weight = new_weights.get(c.key, 1.0)
+
+        # 4. 立刻重新分配宽度
+        self._update_column_widths()
+
+        self._on_save_weights(new_weights)
 
     # ============================================================
     # 只读接口

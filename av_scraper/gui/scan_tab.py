@@ -94,11 +94,17 @@ class ScanTab(ttk.Frame):
             side="left", padx=12,
         )
 
+        saved_weights = self.app.app_config.table_column_weights.get("scan_tab", {})
+
         self.result_tree = SortableTreeview(
             self,
+            table_id="scan_tab",
+            on_save_weights=lambda w: self._save_column_weights("scan_tab", w),
+            initial_weights=self.app.app_config.table_column_weights.get("scan_tab", {}), # ← 加在这里
             height=self.app.app_config.table_height,
             columns=[
                 Column("icon", "", 40,
+                       auto_stretch=False,      # ← 明确告诉组件：我是固定宽度
                        display=_icon, sort=_status_rank,
                        anchor="center"),
                 Column("filename", "文件名", 480,
@@ -133,6 +139,13 @@ class ScanTab(ttk.Frame):
         ttk.Label(self, text="日志:").pack(anchor="w", pady=(6, 0))
         self.log = tk.Text(self, height=self.app.app_config.log_height, wrap="none", state="disabled")
         self.log.pack(fill="both")
+
+    def _save_column_weights(self, table_id: str, weights: dict[str, float]) -> None:
+        self.app.app_config.table_column_weights[table_id] = weights
+        try:
+            self.app.app_config.save(self.app.config_path)
+        except OSError:
+            pass
 
     # ---------- 目录行管理 ----------
     def _add_dir_row(self, initial_value: str = "", removable: bool = False) -> None:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import logging
 import queue
 import threading
@@ -81,8 +82,7 @@ class MoveTab(ttk.Frame):
         # 警示：跨盘移动无法暂停
         self.warn_label = ttk.Label(
             self,
-            text="⚠ 移动开始后无法暂停。请确保源文件与目标目录位于同一硬盘，"
-                 "跨盘移动会显著变慢。",
+            text="⚠ 移动开始后无法暂停。如果涉及跨盘移动，速度会显著变慢并会有额外提醒。",
             foreground="#c77b00",
             justify="left",
         )
@@ -243,6 +243,22 @@ class MoveTab(ttk.Frame):
             logging.getLogger("av_scraper.processor").exception("预览失败")
             self._q.put(("planned", None))
 
+    def _get_device_id(self, path: Path) -> int | None:
+        """获取路径所在物理卷的 ID。如果路径不存在，则向上寻找最近的已存在父目录。"""
+        current = path
+        while current != current.parent:  # 防止死循环（最多找到盘符根目录）
+            try:
+                return os.stat(current).st_dev
+            except FileNotFoundError:
+                current = current.parent
+            except OSError:
+                return None
+        # 兜底尝试一次根目录
+        try:
+            return os.stat(current).st_dev
+        except OSError:
+            return None
+
     def _on_execute(self) -> None:
         if self._working:
             return
@@ -250,26 +266,50 @@ class MoveTab(ttk.Frame):
             messagebox.showwarning("提示", "请先指定输入 JSON")
             return
 
-        # 只处理勾选的行（已按当前预览构建）
         selected = self.result_tree.get_selected()
         if not selected:
             messagebox.showwarning(
                 "提示", "没有勾选任何文件。请先预览并勾选要移动的行。")
             return
 
-        if not messagebox.askyesno(
-            "确认",
-            f"确定要执行移动操作吗？\n\n将移动 {len(selected)} 个文件。",
-        ):
-            return
+        # ---- 1. 精确的跨盘检测（基于 st_dev） ----
+        cross_drive_ops = []
+        for op in selected:
+            src_dev = self._get_device_id(Path(op.src))
+            dst_dev = self._get_device_id(Path(op.dst))
+            
+            # 只有当两边的设备 ID 都成功获取，且不相等时，才算跨盘
+            if src_dev is not None and dst_dev is not None and src_dev != dst_dev:
+                cross_drive_ops.append(op)
 
+        # ---- 2. 弹窗确认 ----
+        if cross_drive_ops:
+            sample = cross_drive_ops[0]
+            msg = (
+                f"检测到有 {len(cross_drive_ops)} 个文件需要跨盘移动。\n\n"
+                f"例如：\n源路径：{sample.src}\n目标路径：{sample.dst}\n\n"
+                "⚠ 跨盘移动（或跨物理硬盘的文件夹挂载点）本质上是「复制 + 删除」，\n"
+                "速度会显著变慢。\n"
+                "⚠ 如果文件很大，可能会卡住较长时间且无法中途暂停。\n\n"
+                "确定仍要执行移动吗？"
+            )
+            if not messagebox.askyesno("跨物理硬盘移动警告", msg, icon="warning", parent=self):
+                return
+        else:
+            # 如果没有跨盘，走原来的普通确认
+            if not messagebox.askyesno(
+                "确认",
+                f"确定要执行移动操作吗？\n\n将移动 {len(selected)} 个文件。",
+                parent=self,
+            ):
+                return
+
+        # ---- 3. 开始执行 ----
         self.stats_var.set(f"执行中 0/{len(selected)}")
         self._clear_log()
         self.app.set_status("执行中…")
         self._working = True
 
-        # 把勾选后的 PlannedOperation 列表直接传给 worker，
-        # 不再重新 load + plan，保证"执行的"= "预览时看到的"
         threading.Thread(
             target=self._execute_worker, args=(selected,), daemon=True,
         ).start()

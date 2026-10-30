@@ -687,6 +687,14 @@ class SortableTreeview(ttk.Frame):
             col = self._columns_by_key.get(key)
             if col is None or col.kind == "checkbox":
                 return None
+                
+            # ---- 新增：多选状态处理 ----
+            current_selection = self.tree.selection()
+            if iid not in current_selection:
+                # 如果右键的行没被选中，则只选中这一行（覆盖原有多选）
+                self.tree.selection_set(iid)
+            # 如果 iid 已经在 selection 里，什么都不做，保留多选状态
+
             self._show_context_menu(event, iid=iid, cell_key=key)
             return "break"
 
@@ -726,18 +734,24 @@ class SortableTreeview(ttk.Frame):
                 command=lambda k=heading_key: self._copy_column(k),
             )
         else:
-            # 调用方 _on_right_click 已保证这两个非 None；
-            # 这里收窄类型，方便 Pylance 推断，也做一层防御。
             if iid is None or cell_key is None:
                 return
+                
+            # ---- 动态判断是否多选 ----
+            selected_iids = self.tree.selection()
+            is_multi = iid in selected_iids and len(selected_iids) > 1
+
             menu.add_command(
                 label="复制单元格",
                 command=lambda i=iid, k=cell_key: self._copy_cell(i, k),
             )
+            
+            row_label = f"复制选中的 {len(selected_iids)} 行" if is_multi else "复制整行"
             menu.add_command(
-                label="复制整行",
-                command=lambda i=iid: self._copy_row(i),
+                label=row_label,
+                command=lambda i=iid: self._copy_selected_or_row(i),
             )
+            
             if self._checkbox_key is not None:
                 menu.add_separator()
                 menu.add_command(
@@ -779,11 +793,25 @@ class SortableTreeview(ttk.Frame):
             return
         self._copy_to_clipboard(self._render_cell(col, data))
 
-    def _copy_row(self, iid: str) -> None:
-        data = self._data_by_iid.get(iid)
-        if data is None:
-            return
-        self._copy_to_clipboard("\t".join(self._row_cells(data)))
+    def _copy_selected_or_row(self, clicked_iid: str) -> None:
+        """复制当前右键的行；如果是多选状态，则复制所有选中的行。"""
+        selected_iids = self.tree.selection()
+        
+        # 如果右键的行在选中集合里，且选了不止一行，复制多行
+        if clicked_iid in selected_iids and len(selected_iids) > 1:
+            targets = selected_iids
+        else:
+            targets = [clicked_iid]
+
+        lines = []
+        for iid in targets:
+            data = self._data_by_iid.get(iid)
+            if data is not None:
+                # 用制表符拼接各列，方便粘贴到 Excel
+                lines.append("\t".join(self._row_cells(data)))
+                
+        if lines:
+            self._copy_to_clipboard("\n".join(lines))
 
     def _copy_column(self, key: str) -> None:
         """复制整列——只复制当前可见的部分。"""

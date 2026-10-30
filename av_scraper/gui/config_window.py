@@ -50,9 +50,8 @@ class ConfigWindow(tk.Toplevel):
         except Exception:
             pass
 
-        # ---- 按 DPI × user_scale 计算窗口尺寸 ----
+        # ---- 按 DPI × user_scale 计算默认尺寸 ----
         w, h = scale_size(self, user_scale, 660, 480)
-        self.geometry(f"{w}x{h}")
         mw, mh = scale_size(self, user_scale, 330, 240)
         self.minsize(mw, mh)
 
@@ -60,8 +59,17 @@ class ConfigWindow(tk.Toplevel):
         self._build(pages)
         self._load_all()
 
-        # 关键：在 withdraw 状态下完成布局与居中，最后一次性显示
-        center_and_show(self, parent, width=w, height=h)
+        # ---- 恢复记忆或居中显示 ----
+        from .common import restore_window_state
+        app_cfg = getattr(parent, "app_config", None)
+        
+        if app_cfg is not None and "config" in app_cfg.window_geometries:
+            # 有记录：恢复位置和大小
+            restore_window_state(self, "config", app_cfg, w, h)
+            self.deiconify()
+        else:
+            # 没记录：居中在主窗口上
+            center_and_show(self, parent, width=w, height=h)
 
         self.protocol("WM_DELETE_WINDOW", self._on_cancel)
 
@@ -228,6 +236,24 @@ class ConfigWindow(tk.Toplevel):
             except Exception:
                 pass
 
+    def _save_state_and_destroy(self) -> None:
+        """关闭前保存配置窗口的尺寸/位置，并写盘。"""
+        from .common import save_window_state
+        
+        parent_app = self.master
+        # 使用 getattr 获取属性，Pylance 不会报错，且运行期极其安全
+        app_cfg = getattr(parent_app, "app_config", None)
+        
+        if app_cfg is not None:
+            save_window_state(self, "config", app_cfg)
+            
+            # 获取主窗口的保存方法并调用
+            save_func = getattr(parent_app, "_save_config", None)
+            if callable(save_func):
+                save_func()
+                
+        self.destroy()
+
     def _on_ok(self) -> None:
         errors = self._apply_all()
         if errors:
@@ -237,7 +263,7 @@ class ConfigWindow(tk.Toplevel):
                 parent=self,
             ):
                 return
-        self.destroy()
+        self._save_state_and_destroy()
 
     def _on_cancel(self) -> None:
-        self.destroy()
+        self._save_state_and_destroy()

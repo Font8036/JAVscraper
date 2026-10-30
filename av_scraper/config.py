@@ -280,6 +280,10 @@ class AppConfig:
         default_factory=dict,
         metadata={"hidden": True},
     )
+    window_geometries: dict[str, dict] = field(
+        default_factory=dict,
+        metadata={"hidden": True},
+    )
     confirm_on_close: bool = field(
         default=True,
         metadata={

@@ -7,7 +7,7 @@ import queue
 import sys
 import tkinter as tk
 from pathlib import Path
-
+from typing import Any
 
 class QueueLogHandler(logging.Handler):
     """把日志记录推入 queue，由主线程消费后写入 Text 控件。"""
@@ -122,3 +122,92 @@ def center_and_show(
     except Exception:
         pass
     window.deiconify()
+
+def restore_window_state(
+    window: tk.Tk | tk.Toplevel,
+    window_id: str,
+    app_config: Any,
+    default_w: int,
+    default_h: int,
+) -> None:
+    """恢复窗口的位置、尺寸和最大化状态，并处理多显示器越界。"""
+    state = app_config.window_geometries.get(window_id, {})
+    w = state.get("width", default_w)
+    h = state.get("height", default_h)
+    x = state.get("x", None)
+    y = state.get("y", None)
+    zoomed = state.get("zoomed", False)
+
+    # 多显示器边界校验
+    if x is not None and y is not None:
+        try:
+            # vroot 获取的是所有显示器组合起来的虚拟桌面范围
+            vx = window.winfo_vrootx()
+            vy = window.winfo_vrooty()
+            vw = window.winfo_vrootwidth()
+            vh = window.winfo_vrootheight()
+            
+            # 如果坐标完全在屏幕外（比如拔了副屏），则丢弃坐标，只恢复尺寸
+            if not (vx <= x < vx + vw - 50 and vy <= y < vy + vh - 50):
+                x = y = None
+        except Exception:
+            x = y = None
+
+    if x is not None and y is not None:
+        window.geometry(f"{w}x{h}+{x}+{y}")
+    else:
+        window.geometry(f"{w}x{h}")
+
+    if zoomed:
+        # 如果之前是最大化，需要延迟一点执行，等窗口映射后再 zoom
+        window.after(10, lambda: window.state("zoomed"))
+
+
+def save_window_state(
+    window: tk.Tk | tk.Toplevel,
+    window_id: str,
+    app_config: Any,
+) -> None:
+    """保存窗口的尺寸、位置和最大化状态到配置对象。"""
+    try:
+        state = window.state()
+        zoomed = state == "zoomed"
+        
+        # 获取几何信息（如果是最大化，这会返回全屏尺寸，但我们可以用 normal 状态下的记录）
+        # 实际上 Tk 中 zoomed 状态下 winfo_width 也是全屏的。
+        # 我们获取正常状态下的尺寸，如果是最大化，需要临时切回 normal 拿尺寸吗？
+        # 更好的办法：读取当前的 x/y/w/h，如果最大化，保留 w/h 为上次的 normal 尺寸。
+        
+        # Tkinter 的 geometry() 在最大化时通常返回类似 "1920x1080+0+0"
+        geo = window.geometry()
+        # 解析 "WxH+X+Y"
+        import re
+        m = re.match(r"(\d+)x(\d+)\+(-?\d+)\+(-?\d+)", geo)
+        
+        existing = app_config.window_geometries.get(window_id, {})
+        
+        if m:
+            w, h, x, y = map(int, m.groups())
+            if zoomed:
+                # 如果当前是最大化，保留之前记录的尺寸（如果有），否则保留当前尺寸
+                w = existing.get("width", w)
+                h = existing.get("height", h)
+                x = existing.get("x", x)
+                y = existing.get("y", y)
+        else:
+            w = window.winfo_width()
+            h = window.winfo_height()
+            x = window.winfo_x()
+            y = window.winfo_y()
+            if zoomed:
+                w = existing.get("width", w)
+                h = existing.get("height", h)
+                x = existing.get("x", x)
+                y = existing.get("y", y)
+
+        app_config.window_geometries[window_id] = {
+            "width": w, "height": h, "x": x, "y": y, "zoomed": zoomed,
+        }
+    except Exception:
+        pass
+

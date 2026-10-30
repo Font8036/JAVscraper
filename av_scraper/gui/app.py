@@ -63,9 +63,16 @@ class App(tk.Tk):
         # 1. 设置缩放
         apply_ui_scaling(self, user_scale)
 
-        # 2. 窗口大小等比放大
-        w, h = scale_size(self, user_scale, 720, 480)
-        self.geometry(centered_geometry(self, w, h))
+        # 默认尺寸
+        dw, dh = scale_size(self, user_scale, 720, 480)
+        
+        # 2. 恢复窗口位置/大小（如果有记录的话）
+        from .common import restore_window_state
+        if "main" in self.app_config.window_geometries:
+            restore_window_state(self, "main", self.app_config, dw, dh)
+        else:
+            # 如果没有记录，默认居中
+            self.geometry(centered_geometry(self, dw, dh))
 
         # 3. 最小尺寸也放大
         mw, mh = scale_size(self, user_scale, 480, 320)
@@ -96,6 +103,12 @@ class App(tk.Tk):
                 parent=self,
             ):
                 return
+                
+        # 保存主窗口的尺寸和位置
+        from .common import save_window_state
+        save_window_state(self, "main", self.app_config)
+        self._save_config()   # 把包含几何信息的配置写入磁盘
+        
         self.destroy()
 
     def _build(self) -> None:

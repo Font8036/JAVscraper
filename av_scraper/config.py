@@ -284,6 +284,10 @@ class AppConfig:
         default_factory=dict,
         metadata={"hidden": True},
     )
+    window_topmost: dict[str, bool] = field(
+        default_factory=dict,
+        metadata={"hidden": True},
+    )
     confirm_on_close: bool = field(
         default=True,
         metadata={

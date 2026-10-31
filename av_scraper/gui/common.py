@@ -211,3 +211,29 @@ def save_window_state(
     except Exception:
         pass
 
+def apply_topmost_state(
+    window: tk.Tk | tk.Toplevel,
+    window_id: str,
+    app_config: Any,
+) -> bool:
+    """读取配置并应用置顶状态，返回当前是否置顶。"""
+    state = app_config.window_topmost.get(window_id, False)
+    try:
+        window.attributes("-topmost", state)
+    except Exception:
+        pass
+    return state
+
+
+def save_topmost_state(
+    window: tk.Tk | tk.Toplevel,
+    window_id: str,
+    app_config: Any,
+    state: bool,
+) -> None:
+    """应用并保存置顶状态。"""
+    try:
+        window.attributes("-topmost", state)
+        app_config.window_topmost[window_id] = state
+    except Exception:
+        pass

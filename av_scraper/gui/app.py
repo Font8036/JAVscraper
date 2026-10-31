@@ -43,6 +43,11 @@ class App(tk.Tk):
         self._config_window: tk.Toplevel | None = None
         self._about_window: tk.Toplevel | None = None
         self._build()
+        # ---- 新增：应用置顶状态 ----
+        from .common import apply_topmost_state
+        topmost_state = apply_topmost_state(self, "main", self.app_config)
+        self.topmost_var.set(topmost_state)
+        
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         # 布局完成，显示窗口
         self.deiconify()
@@ -55,6 +60,12 @@ class App(tk.Tk):
         # 自动检查更新（配置开启时，启动 3 秒后触发）
         if getattr(self.app_config, "auto_check_update", False):
             self.after(3000, self._auto_check_update)
+
+    def _on_toggle_topmost(self) -> None:
+        from .common import save_topmost_state
+        state = self.topmost_var.get()
+        save_topmost_state(self, "main", self.app_config, state)
+        self._save_config()
 
     def _apply_ui_scaling(self) -> None:
         """按 DPI × 用户缩放系数设置界面缩放与窗口大小。"""
@@ -135,6 +146,13 @@ class App(tk.Tk):
             status_bar, text="配置", width=6,
             command=self._open_config_window,
         ).pack(side="right")
+        # ---- 新增：置顶勾选框 ----
+        self.topmost_var = tk.BooleanVar(value=False)
+        topmost_cb = ttk.Checkbutton(
+            status_bar, text="📌 置顶", variable=self.topmost_var,
+            command=self._on_toggle_topmost,
+        )
+        topmost_cb.pack(side="right", padx=(4, 8))
 
         # ===== Notebook 占据剩余空间 =====
         nb = ttk.Notebook(self)

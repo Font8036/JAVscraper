@@ -57,6 +57,13 @@ class ConfigWindow(tk.Toplevel):
 
         self._pages: dict[str, ConfigPage] = {}
         self._build(pages)
+        # ---- 新增：应用置顶状态 ----
+        from .common import apply_topmost_state
+        app_cfg = getattr(parent, "app_config", None)
+        if app_cfg is not None:
+            topmost_state = apply_topmost_state(self, "config", app_cfg)
+            self.topmost_var.set(topmost_state)
+
         self._load_all()
 
         # ---- 恢复记忆或居中显示 ----
@@ -84,6 +91,13 @@ class ConfigWindow(tk.Toplevel):
         ttk.Button(btns, text="重置", command=self._on_reset).pack(side="left")
         ttk.Button(btns, text="重新加载", command=self._on_reload).pack(
             side="left", padx=(8, 0))
+        # ---- 新增：置顶勾选框 ----
+        self.topmost_var = tk.BooleanVar(value=False)
+        topmost_cb = ttk.Checkbutton(
+            btns, text="置顶", variable=self.topmost_var,
+            command=self._on_toggle_topmost,
+        )
+        topmost_cb.pack(side="left", padx=(16, 0))
 
         ttk.Button(btns, text="应用", command=self._on_apply).pack(
             side="right", padx=(4, 0))
@@ -100,6 +114,17 @@ class ConfigWindow(tk.Toplevel):
             self._build_scrollable_tab(container, page)
             nb.add(container, text=page.title)
             self._pages[page.title] = page
+
+    def _on_toggle_topmost(self) -> None:
+        from .common import save_topmost_state
+        parent_app = self.master
+        app_cfg = getattr(parent_app, "app_config", None)
+        if app_cfg is not None:
+            state = self.topmost_var.get()
+            save_topmost_state(self, "config", app_cfg, state)
+            save_func = getattr(parent_app, "_save_config", None)
+            if callable(save_func):
+                save_func()
 
     def _build_scrollable_tab(
         self, container: ttk.Frame, page: ConfigPage,

@@ -21,6 +21,7 @@ from openpyxl import load_workbook
 from playwright.async_api import async_playwright
 
 from .config import JavdbSourceConfig
+from .parse import normalize_code   # ← 新增
 
 logger = logging.getLogger(__name__)
 
@@ -232,10 +233,39 @@ async def _process_one(
     if empty and await empty.is_visible():
         raise NoSearchResultError(keyword)
 
-    cover_url = await page.get_attribute(".movie-list .item img", "src")
+    # ---- 提取结果并精准匹配 ----
+    items = await page.query_selector_all(".movie-list .item")
+    target_norm = normalize_code(keyword)
+    target_element = None
+    target_cover_url = None
+
+    for item in items:
+        # 提取当前项里的番号文本。先尝试你提供的精确路径，失败则降级到常见的 .video-title strong
+        code_el = await item.query_selector("div:nth-of-type(2) > strong")
+        if not code_el:
+            code_el = await item.query_selector(".video-title strong")
+            
+        if code_el:
+            text = await code_el.inner_text()
+            if normalize_code(text.strip()) == target_norm:
+                target_element = await item.query_selector("a")
+                # 顺便拿到这个匹配项的封面，而不是第一个的
+                cover_img = await item.query_selector("img")
+                if cover_img:
+                    target_cover_url = await cover_img.get_attribute("src")
+                break
+
+    # 决定点击哪个
+    if target_element:
+        cover_url = target_cover_url
+        await target_element.click()
+    else:
+        # 兜底策略 B：没找到匹配，记警告并点击第一个
+        on_log(f"{keyword}: [警告] 第一页未找到精确匹配的番号，回退点击第一条结果")
+        cover_url = await page.get_attribute(".movie-list .item img", "src")
+        await page.click(".movie-list .item a")
 
     # ---- 进入详情 ----
-    await page.click(".movie-list .item a")
     await page.wait_for_selector(
         "strong.current-title", state="visible", timeout=config.page_timeout_ms,
     )
@@ -269,7 +299,7 @@ async def _process_one(
 
     try:
         info = await page.inner_text(
-            "html > body > section > div > div:nth-of-type(4) "
+            "html > body > section > div > div:nth-of-type(5) "
             "> div > div > div:nth-of-type(2)"
         )
     except Exception:

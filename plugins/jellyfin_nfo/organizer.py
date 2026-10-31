@@ -84,7 +84,6 @@ def _find_cover(cover_dir, code: str) -> Optional[Path]:
             return candidate
     return None
 
-
 def _copy_covers(
     folder: Path, videos: list, code: str,
     cover_src: Path, config: JellyfinNfoConfig,
@@ -93,8 +92,10 @@ def _copy_covers(
     ext = cover_src.suffix or ".jpg"
 
     if config.cover_naming in ("与视频同名", "两种都复制"):
-        for v in videos:
-            dst = folder / f"{v.stem}{ext}"
+        # 修改点：不再遍历 videos，只为主视频（排序后的第一个）复制同名封面
+        if videos:
+            main_video = videos[0]
+            dst = folder / f"{main_video.stem}{ext}"
             try:
                 shutil.copy2(cover_src, dst)
                 copied.append(dst.name)
@@ -111,7 +112,6 @@ def _copy_covers(
                 logger.warning("复制封面 %s 失败: %s", dst, e)
 
     return copied
-
 
 def _write_nfo_files(
     folder: Path, videos: list, content: str,

@@ -144,6 +144,14 @@ class JellyfinNfoConfig:
             "row_group": "nfo_switches",
         }
     )
+    # ---- 新增 ----
+    skip_existing_covers: bool = field(
+        default=True, metadata={
+            "label": "提取时跳过已有封面", "kind": "bool",
+            "row_group": "nfo_switches",
+            "tooltip": "提取图片时，若封面源目录已有该番号的图片（任意格式），则跳过提取。",
+        }
+    )
 
     # ---- 历史（隐藏）----
     recent_input_excels: list = field(

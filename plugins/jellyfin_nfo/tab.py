@@ -218,6 +218,7 @@ class JellyfinNfoPlugin:
                 cover_column_name=self._config.cover_column,
                 header_row=self._config.header_row,
                 output_dir=self._config.cover_source_dir,
+                skip_existing=self._config.skip_existing_covers,  # ← 新增
                 on_log=log,
             )
             self._queue.put(("extract_done", (exported, skipped)))

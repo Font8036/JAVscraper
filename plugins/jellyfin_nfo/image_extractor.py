@@ -30,6 +30,7 @@ def extract_covers_from_excel(
     cover_column_name: str,          # ← 新增
     header_row: int,
     output_dir: str | Path,
+    skip_existing: bool = False,      # ← 新增参数
     on_log: Optional[LogFn] = None,
 ) -> tuple:
     """从 Excel 提取封面，按番号命名保存到 output_dir。
@@ -60,10 +61,20 @@ def extract_covers_from_excel(
     # 3. 提取图片
     exported = 0
     skipped = 0
+    # 常见图片扩展名，用于判断是否已存在
+    all_exts = (".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp")
 
     with zipfile.ZipFile(excel_path) as zf:
         names = set(zf.namelist())
         for code, dispimg_id in code_to_dispimg.items():
+            # ---- 新增：跳过已存在的逻辑 ----
+            if skip_existing:
+                has_existing = any((output_dir / f"{code}{ext}").exists() for ext in all_exts)
+                if has_existing:
+                    log(f"跳过 {code}: 封面已存在")
+                    skipped += 1
+                    continue
+
             filename = dispimg_to_file.get(dispimg_id)
             if not filename:
                 log(f"跳过 {code}: 无对应图片")

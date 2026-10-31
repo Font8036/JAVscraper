@@ -7,7 +7,8 @@ from __future__ import annotations
 
 import math
 import re
-
+from typing import Optional
+from pathlib import Path
 
 def _is_blank(value) -> bool:
     if value is None:
@@ -130,3 +131,86 @@ def normalize_code(code: str) -> str:
 def is_matched(target: str, scraped: str) -> bool:
     """判断刮到的番号是否与目标番号一致。"""
     return bool(target) and normalize_code(target) == normalize_code(scraped)
+
+def _check_contains(target: str, scraped: str) -> bool:
+    """包含与边界校验（当提取器失效时的兜底方案）"""
+    t = target.upper().replace("_", "-").replace(" ", "-")
+    s = scraped.upper().replace("_", "-").replace(" ", "-")
+    
+    idx = 0
+    while True:
+        idx = s.find(t, idx)
+        if idx == -1:
+            return False
+            
+        # 左边界校验：如果 target 以字母开头，前一个字符不能是字母
+        left_ok = True
+        if t[0].isalpha() and idx > 0:
+            if s[idx - 1].isalpha():
+                left_ok = False
+                
+        # 右边界校验：如果 target 以数字结尾，后一个字符不能是数字
+        right_ok = True
+        if t[-1].isdigit() and idx + len(t) < len(s):
+            if s[idx + len(t)].isdigit():
+                right_ok = False
+                
+        if left_ok and right_ok:
+            return True
+        idx += 1
+
+def is_consistent(target: str, scraped: str, extractor) -> bool:
+    """综合判断目标番号和网页刮到的番号是否一致。"""
+    if not target or not scraped:
+        return False
+        
+    # 1. 先尝试提取器（这会解决 ABC-123-C 与 ABC-123 一致的问题）
+    t_code = extractor.extract(target)
+    s_code = extractor.extract(scraped)
+    if t_code and s_code:
+        return normalize_code(t_code) == normalize_code(s_code)
+
+    # 2. 提取器失效，直接去符号比对
+    if normalize_code(target) == normalize_code(scraped):
+        return True
+        
+    # 3. 包含与边界校验（解决 heydouga-4030-2143 与 4030-2143）
+    return _check_contains(target, scraped)
+
+def get_cover_stem(target: str, scraped: str, extractor) -> str:
+    """决定封面图片的文件名主干（不含扩展名）。"""
+    if is_consistent(target, scraped, extractor):
+        return target  # 一致，直接用标准番号
+
+    # 不一致，尝试提取网页番号的标准形式
+    s_code = extractor.extract(scraped)
+    if s_code:
+        return s_code
+
+    # 提取器也认不出，用清理后的网页原始番号
+    return re.sub(r'[\\/*?:"<>|]', "", scraped).strip()
+
+def find_existing_cover(cover_dir: Path, target: str, scraped: str, extractor) -> Optional[Path]:
+    """按优先级查找已有封面图片。"""
+    if not cover_dir.exists():
+        return None
+        
+    exts = [".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"]
+    
+    # 候选文件名集合（按优先级）
+    candidates = [target]
+    
+    s_code = extractor.extract(scraped)
+    if s_code and s_code != target:
+        candidates.append(s_code)
+        
+    clean_scraped = re.sub(r'[\\/*?:"<>|]', "", scraped).strip()
+    if clean_scraped and clean_scraped not in candidates:
+        candidates.append(clean_scraped)
+        
+    for name in candidates:
+        for ext in exts:
+            p = cover_dir / f"{name}{ext}"
+            if p.exists():
+                return p
+    return None

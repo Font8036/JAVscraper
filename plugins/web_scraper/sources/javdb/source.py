@@ -474,8 +474,17 @@ class JavdbSource:
             self._queue.put(("progress", (idx0, keyword, payload, status)))
 
         try:
+            # 创建提取器（或者复用 self 里的，如果有的话）
+            from av_scraper.scraper import CodeExtractor
+            from av_scraper.config import ScraperConfig
+            try:
+                extractor = CodeExtractor(self.ctx.app_config.scraper)
+            except Exception:
+                extractor = CodeExtractor(ScraperConfig())
+
             records = asyncio.run(scrape_javdb(
                 self._config, targets,
+                extractor,      # <-- 传入提取器
                 stop_event=self._stop_event,
                 on_log=log,
                 on_progress=progress,

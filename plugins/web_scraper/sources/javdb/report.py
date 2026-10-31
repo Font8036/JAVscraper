@@ -14,8 +14,7 @@ try:
 except ImportError:
     HAS_PIL = False
 
-from .parse import parse_row
-from .parse import is_matched
+from .parse import parse_row, is_matched, find_existing_cover
 
 MAX_ROW_HEIGHT_PT = 409.5
 B_COL_WIDTH_CHARS = 22
@@ -158,11 +157,20 @@ def build_excel(
             worksheet.write(row_idx, 9, rec["评论"] or "", cell_fmt)
 
             # ---- 封面嵌入 ----
-            fanhao = rec["番号"]
-            if not fanhao:
+            fanhao = rec["番号"]       # 网页抓到的原始番号
+            target = rec.get("目标番号", "")
+            if not target:
                 continue
 
-            img_path = _find_cover(cover_dir, fanhao)
+            # 使用统一的方法查找
+            # 注意：需要在 report.py 顶部引入提取器或手动初始化一个
+            from av_scraper.scraper import CodeExtractor
+            from av_scraper.config import ScraperConfig
+            # 这里只是为了实例化，没有配置传入的话用默认的
+            extractor = CodeExtractor(ScraperConfig()) 
+            
+            img_path = find_existing_cover(cover_dir, target, fanhao, extractor)
+            
             if img_path is None:
                 continue
 
@@ -171,9 +179,9 @@ def build_excel(
             worksheet.set_row(row_idx, row_height_pt)
 
             try:
-                worksheet.embed_image(row_idx, 2, str(img_path))   # ← 列号从 1 改成 2
+                worksheet.embed_image(row_idx, 2, str(img_path))
             except Exception as e:
-                log(f"嵌入图片 {fanhao} 失败: {e}")
+                log(f"嵌入图片 {img_path.name} 失败: {e}")
 
         worksheet.freeze_panes(1, 0)
     finally:

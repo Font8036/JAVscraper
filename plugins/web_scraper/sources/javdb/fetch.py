@@ -21,7 +21,9 @@ from openpyxl import load_workbook
 from playwright.async_api import async_playwright
 
 from .config import JavdbSourceConfig
-from .parse import normalize_code   # ← 新增
+# 找到 fetch.py 顶部的 import 区域，加上这些
+from av_scraper.scraper import CodeExtractor  # 用于类型注解
+from .parse import normalize_code, find_existing_cover, get_cover_stem
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +86,7 @@ def load_targets(excel_path: str | Path) -> list[str]:
 async def scrape_javdb(
     config: JavdbSourceConfig,
     targets: list[str],
+    extractor,          # <-- 新增
     *,
     stop_event: Optional[threading.Event] = None,
     on_log: LogFn = _noop_log,
@@ -140,7 +143,7 @@ async def scrape_javdb(
                     if stop_event and stop_event.is_set():
                         break
                     try:
-                        record = await _process_one(page, keyword, config, on_log)
+                        record = await _process_one(page, keyword, config, extractor, on_log)
                         table_data.append(record)
                         on_log(f"抓取成功: {record['番号']} - {record['名称']}")
                         if on_progress:
@@ -216,6 +219,7 @@ async def _process_one(
     page,
     keyword: str,
     config: JavdbSourceConfig,
+    extractor: CodeExtractor,
     on_log: LogFn,
 ) -> dict:
     # ---- 搜索 ----
@@ -317,17 +321,26 @@ async def _process_one(
 
     # ---- 下载封面 ----
     if cover_url and config.cover_dir:
-        img_path = Path(config.cover_dir) / f"{fanhao}.jpg"
-        if config.skip_existing_covers and img_path.exists():
-            on_log(f"封面已存在，跳过: {img_path}")
+        cover_dir = Path(config.cover_dir)
+        cover_dir.mkdir(parents=True, exist_ok=True)
+        
+        # 查找本地是否已有图片
+        existing = find_existing_cover(cover_dir, keyword, fanhao, extractor)
+        
+        if config.skip_existing_covers and existing:
+            on_log(f"封面已存在，跳过: {existing}")
         else:
+            # 决定保存的文件名
+            stem = get_cover_stem(keyword, fanhao, extractor)
+            img_path = cover_dir / f"{stem}.jpg"
+            
             try:
                 async with httpx.AsyncClient() as client:
                     resp = await client.get(cover_url)
                     if resp.is_success:
-                        img_path.parent.mkdir(parents=True, exist_ok=True)
-                        with open(img_path, "wb") as f:
-                            f.write(resp.content)
+                        # 原子写，防止写一半中断
+                        from av_scraper import fileio
+                        fileio.write_via_temp(img_path, lambda tmp: tmp.write_bytes(resp.content))
                         on_log(f"封面已下载: {img_path}")
                     else:
                         on_log(f"封面下载失败: HTTP {resp.status_code}")

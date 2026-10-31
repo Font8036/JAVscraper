@@ -51,6 +51,25 @@ class ScraperConfig:
             "row_group": "scraper_bools",     # ← 新增
         },
     )
+    active_extension_group: str = field(
+        default="默认",
+        metadata={
+            "label": "扩展名分组",
+            "kind": "choice",
+            "choices": ["默认"],  # 运行时会动态更新
+            "tooltip": "切换不同的扩展名组合（如只扫视频、只扫字幕）。\n"
+                       "在下方的文本框中修改扩展名后，切换分组会自动保存当前修改。",
+        },
+    )
+    extension_groups: dict = field(
+        default_factory=lambda: {
+            "默认": {
+                "video": list(DEFAULT_VIDEO_EXTENSIONS),
+                "attachment": list(DEFAULT_ATTACHMENT_EXTENSIONS),
+            }
+        },
+        metadata={"hidden": True},
+    )
     separators: list[str] = field(
         default_factory=lambda: ["-", "_"],
         metadata={
@@ -392,6 +411,17 @@ class AppConfig:
                 continue
             if f.name in data:
                 kwargs[f.name] = data[f.name]
+
+        # 兼容老版本：如果 extension_groups 为空，用已有的扩展名初始化
+        scraper_obj = kwargs.get("scraper")
+        if scraper_obj and not scraper_obj.extension_groups:
+            scraper_obj.extension_groups = {
+                "默认": {
+                    "video": list(scraper_obj.video_extensions),
+                    "attachment": list(scraper_obj.attachment_extensions),
+                }
+            }
+            scraper_obj.active_extension_group = "默认"
 
         return cls(**kwargs), notices
 

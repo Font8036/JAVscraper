@@ -387,3 +387,23 @@ class ConfigForm(ttk.Frame):
                         items.append(part)
             return items
         return widget.get()
+
+    def get_widget(self, field_name: str) -> Any:
+        """返回指定字段的底层控件（变量或控件对象）。"""
+        if field_name in self._widgets:
+            return self._widgets[field_name][1]
+        return None
+
+    def update_choices(self, field_name: str, choices: list[str]) -> None:
+        """动态更新下拉框的选项。"""
+        if field_name in self._widgets:
+            kind, widget = self._widgets[field_name]
+            if kind == "choice":
+                # widget 实际上是 tk.StringVar，我们需要找到它的 Combobox
+                # 可以通过遍历 row_frame 找到 Combobox 控件
+                row_frame = self._row_frames.get(field_name)
+                if row_frame:
+                    for child in row_frame.winfo_children():
+                        if isinstance(child, ttk.Combobox):
+                            child.configure(values=choices)
+                            break

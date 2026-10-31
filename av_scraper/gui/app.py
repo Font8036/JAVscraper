@@ -42,6 +42,10 @@ class App(tk.Tk):
         self._apply_ui_scaling()
         self._config_window: tk.Toplevel | None = None
         self._about_window: tk.Toplevel | None = None
+        # ---- 新增：扩展名分组相关的状态变量 ----
+        self._is_loading_ui = False
+        self._last_active_group = "默认"
+        # ----------------------------------------
         self._build()
         # ---- 新增：应用置顶状态 ----
         from .common import apply_topmost_state
@@ -416,16 +420,98 @@ class App(tk.Tk):
                 form = ConfigForm(group, cls)
                 form.pack(fill="x")
                 forms[key] = form
+
+            # ---- 处理扩展名分组联动 ----
+            scraper_form = forms["scraper"]
+
+            # 标志位，防止 load 时触发懒保存
+            self._is_loading_ui = False 
+
+            # 1. 动态更新下拉选项
+            def _refresh_group_choices():
+                groups = list(self.app_config.scraper.extension_groups.keys())
+                if not groups:
+                    groups = ["默认"]
+                scraper_form.update_choices("active_extension_group", groups)
+
+            _refresh_group_choices()
+
+            row_frame = scraper_form.get_row_frame("active_extension_group")
+            if row_frame:
+                ttk.Button(
+                    row_frame, text="管理", width=6,
+                    command=lambda: self._open_group_manager(scraper_form)
+                ).pack(side="left", padx=(4, 0))
+
+            combo_var = scraper_form.get_widget("active_extension_group")
+            if combo_var and isinstance(combo_var, tk.StringVar):
+                def on_group_changed(*_args):
+                    if getattr(self, "_is_loading_ui", False):
+                        return  # 正在加载数据，忽略联动
+                        
+                    old_group = getattr(self, "_last_active_group", "默认")
+                    new_group = combo_var.get()
+                    if old_group == new_group:
+                        return
+
+                    # 懒保存
+                    v_widget = scraper_form.get_widget("video_extensions")
+                    a_widget = scraper_form.get_widget("attachment_extensions")
+                    if v_widget and a_widget:
+                        v_text = v_widget.get("1.0", "end").strip()
+                        a_text = a_widget.get("1.0", "end").strip()
+                        v_list = [x.strip() for x in v_text.replace(",", "\n").splitlines() if x.strip()]
+                        a_list = [x.strip() for x in a_text.replace(",", "\n").splitlines() if x.strip()]
+                        self.app_config.scraper.extension_groups[old_group] = {
+                            "video": v_list, "attachment": a_list,
+                        }
+
+                    # 载入新组
+                    new_data = self.app_config.scraper.extension_groups.get(new_group, {"video": [], "attachment": []})
+                    if v_widget and a_widget:
+                        v_widget.delete("1.0", "end")
+                        v_widget.insert("1.0", "\n".join(new_data.get("video", [])))
+                        a_widget.delete("1.0", "end")
+                        a_widget.insert("1.0", "\n".join(new_data.get("attachment", [])))
+
+                    self._last_active_group = new_group
+
+                combo_var.trace_add("write", on_group_changed)
+                self._last_active_group = combo_var.get()
+
             return frame
 
         def load(cfg: AppConfig) -> None:
-            forms["scraper"].load_from(cfg.scraper)
-            forms["processor"].load_from(cfg.processor)
-            forms["app"].load_from(cfg)
+            self._is_loading_ui = True
+            try:
+                forms["scraper"].load_from(cfg.scraper)
+                forms["processor"].load_from(cfg.processor)
+                forms["app"].load_from(cfg)
+                # 更新记录，防止加载完后立马触发一次错误的懒保存
+                combo = forms["scraper"].get_widget("active_extension_group")
+                if combo:
+                    self._last_active_group = combo.get()
+            finally:
+                self._is_loading_ui = False
 
         def collect() -> AppConfig:
             new = AppConfig()
-            new.scraper = forms["scraper"].collect()
+            
+            # 同步当前分组的文本框内容
+            scraper_form = forms["scraper"]
+            v_widget = scraper_form.get_widget("video_extensions")
+            a_widget = scraper_form.get_widget("attachment_extensions")
+            if v_widget and a_widget:
+                v_list = [x.strip() for x in v_widget.get("1.0", "end").replace(",", "\n").splitlines() if x.strip()]
+                a_list = [x.strip() for x in a_widget.get("1.0", "end").replace(",", "\n").splitlines() if x.strip()]
+                active_group = getattr(self, "_last_active_group", "默认")
+                self.app_config.scraper.extension_groups[active_group] = {
+                    "video": v_list,
+                    "attachment": a_list,
+                }
+
+            new.scraper = scraper_form.collect()
+            # ... 其余逻辑不变
             new.processor = forms["processor"].collect()
             new_app = forms["app"].collect()
             for f in dataclasses.fields(AppConfig):
@@ -460,3 +546,105 @@ class App(tk.Tk):
             current=current,
             default=default,
         )]
+
+    def _open_group_manager(self, scraper_form):
+        from tkinter import simpledialog, messagebox
+        
+        dialog = tk.Toplevel(self)
+        dialog.withdraw()               # 1. 先隐藏窗口，防止闪现
+        dialog.title("管理扩展名分组")
+        set_window_icon(dialog)        # ← 加上这一行
+        
+        # 1. 获取真正的父窗口（即当前打开的那个配置窗口）
+        parent_window = scraper_form.winfo_toplevel()
+
+        # 2. 根据缩放计算尺寸并居中到父窗口
+        user_scale = max(0.5, min(3.0, self.app_config.ui_scale / 100.0))
+        w, h = scale_size(self, user_scale, 150, 150)
+        x = parent_window.winfo_rootx() + (parent_window.winfo_width() - w) // 2
+        y = parent_window.winfo_rooty() + (parent_window.winfo_height() - h) // 2
+        
+        dialog.geometry(f"{w}x{h}+{max(0, x)}+{max(0, y)}")
+        dialog.minsize(w//2, h//2)
+        dialog.transient(parent_window)
+        dialog.grab_set()
+        dialog.deiconify()              # 6. 一切就绪，显示窗口
+        # 3. 先绘制底部按钮区（占据底部空间）
+        btn_frame = ttk.Frame(dialog, padding=(0, 5))
+        btn_frame.pack(fill="x", side="bottom")
+
+        # 4. 再绘制列表区（占据剩余的中间空间）
+        listbox = tk.Listbox(dialog)
+        listbox.pack(fill="both", expand=True, padx=10, pady=(10, 0))
+
+        def refresh_list():
+            listbox.delete(0, "end")
+            for g in self.app_config.scraper.extension_groups.keys():
+                listbox.insert("end", g)
+
+        refresh_list()
+
+        def add_group():
+            name = simpledialog.askstring("新建分组", "请输入分组名称：", parent=dialog)
+            if name and name not in self.app_config.scraper.extension_groups:
+                self.app_config.scraper.extension_groups[name] = {"video": [], "attachment": []}
+                refresh_list()
+                scraper_form.update_choices("active_extension_group", list(self.app_config.scraper.extension_groups.keys()))
+
+        def del_group():
+            sel = listbox.curselection()
+            if not sel:
+                return
+            name = listbox.get(sel[0])
+            if name == "默认":
+                messagebox.showwarning("提示", "不能删除默认分组", parent=dialog)
+                return
+            if messagebox.askyesno("确认", f"确定删除分组「{name}」吗？", parent=dialog):
+                del self.app_config.scraper.extension_groups[name]
+                refresh_list()
+                choices = list(self.app_config.scraper.extension_groups.keys())
+                scraper_form.update_choices("active_extension_group", choices)
+                
+                combo = scraper_form.get_widget("active_extension_group")
+                if combo and combo.get() == name:
+                    self._is_loading_ui = True  # 静默切换
+                    combo.set("默认")
+                    self._last_active_group = "默认"
+                    self._is_loading_ui = False
+                    # 手工加载默认组的数据
+                    new_data = self.app_config.scraper.extension_groups["默认"]
+                    v_w = scraper_form.get_widget("video_extensions")
+                    a_w = scraper_form.get_widget("attachment_extensions")
+                    if v_w and a_w:
+                        v_w.delete("1.0", "end")
+                        v_w.insert("1.0", "\n".join(new_data.get("video", [])))
+                        a_w.delete("1.0", "end")
+                        a_w.insert("1.0", "\n".join(new_data.get("attachment", [])))
+
+        def rename_group():
+            sel = listbox.curselection()
+            if not sel:
+                return
+            old_name = listbox.get(sel[0])
+            if old_name == "默认":
+                messagebox.showwarning("提示", "不能重命名默认分组", parent=dialog)
+                return
+            new_name = simpledialog.askstring("重命名", "请输入新名称：", initialvalue=old_name, parent=dialog)
+            if new_name and new_name not in self.app_config.scraper.extension_groups:
+                self.app_config.scraper.extension_groups[new_name] = self.app_config.scraper.extension_groups.pop(old_name)
+                refresh_list()
+                choices = list(self.app_config.scraper.extension_groups.keys())
+                scraper_form.update_choices("active_extension_group", choices)
+                
+                combo = scraper_form.get_widget("active_extension_group")
+                if combo and combo.get() == old_name:
+                    self._is_loading_ui = True
+                    combo.set(new_name)
+                    self._last_active_group = new_name
+                    self._is_loading_ui = False
+
+        # 把新建、删除、重命名按钮塞进刚才先画好的 btn_frame 里
+        # 注意这里加了 fill="x" 和 expand=True
+        ttk.Button(btn_frame, text="新建", width=4,  command=add_group).pack(side="left", fill="x", expand=True, padx=(10, 5))
+        ttk.Button(btn_frame, text="删除", width=4, command=del_group).pack(side="left", fill="x", expand=True, padx=5)
+        ttk.Button(btn_frame, text="重命名", width=6, command=rename_group).pack(side="left", fill="x", expand=True, padx=(5, 10))

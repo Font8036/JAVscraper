@@ -132,6 +132,9 @@ class JellyfinNfoPlugin:
         self.result_tree = SortableTreeview(
             root,
             key=lambda r: r["code"],
+            table_id="plugin_jellyfin",                                 # ← 新增
+            initial_weights=self._config.table_column_weights,          # ← 新增
+            on_save_weights=self._save_column_weights,                  # ← 新增
             height=self.ctx.app_config.table_height,
             searchable=True,
             columns=[
@@ -168,6 +171,10 @@ class JellyfinNfoPlugin:
         ttk.Label(root, text="日志:").pack(anchor="w", pady=(6, 0))
         self._log = tk.Text(root, height=self.ctx.app_config.log_height, wrap="none", state="disabled")
         self._log.pack(fill="both")
+
+    def _save_column_weights(self, weights: dict[str, float]) -> None:
+        self._config.table_column_weights = weights
+        self._config.save(self._config_path)
 
     # ============================================================
     # 提取图片

@@ -96,7 +96,9 @@ class JavdbSourceConfig:
         default_factory=list, metadata={"hidden": True})
     recent_state_files: list = field(
         default_factory=list, metadata={"hidden": True})
-
+    # ---- 列宽 ----
+    table_column_weights: dict = field(
+        default_factory=dict, metadata={"hidden": True})
     @property
     def page_timeout_ms(self) -> int:
         return max(1, int(self.page_timeout)) * 1000

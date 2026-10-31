@@ -209,6 +209,9 @@ class JavdbSource:
         self._result_tree = SortableTreeview(
             root,
             key=lambda r: f"row_{r.idx}",
+            table_id="plugin_javdb",                                    # ← 新增
+            initial_weights=self._config.table_column_weights,          # ← 新增
+            on_save_weights=self._save_column_weights,                  # ← 新增
             height=self.ctx.app_config.table_height,
             searchable=True,
             columns=[
@@ -331,6 +334,10 @@ class JavdbSource:
         if self._btn_report: self._btn_report.configure(state="normal")
         if self._btn_stop: self._btn_stop.configure(state="disabled")
         if self._status_var: self._status_var.set("就绪")
+
+    def _save_column_weights(self, weights: dict[str, float]) -> None:
+        self._config.table_column_weights = weights
+        self.plugin.save_config()
 
     # ============================================================
     # 导入 Cookie

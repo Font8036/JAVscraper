@@ -153,6 +153,10 @@ class JellyfinNfoConfig:
     recent_cover_dirs: list = field(
         default_factory=list, metadata={"hidden": True})
 
+    # ---- 列宽 ----
+    table_column_weights: dict = field(
+        default_factory=dict, metadata={"hidden": True})
+
     # ---------- 读写 ----------
     @classmethod
     def load(cls, path: Path) -> "JellyfinNfoConfig":

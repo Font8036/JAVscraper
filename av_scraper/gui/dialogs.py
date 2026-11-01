@@ -56,11 +56,7 @@ def fetch_latest_release() -> dict | None:
         return None
 
 def _load_about_icon(size: int = 96):
-    """加载关于窗口顶部的大图。
-
-    优先用 Pillow 缩放 icon.png；没装 Pillow 时退回显示原始大小。
-    返回 PhotoImage，或 None。
-    """
+    """加载关于窗口顶部的大图（纯 Tkinter 实现，无第三方依赖）。"""
     try:
         if getattr(sys, "frozen", False):
             base = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
@@ -72,23 +68,16 @@ def _load_about_icon(size: int = 96):
         if not icon_png.exists():
             return None
 
-        try:
-            from PIL import Image, ImageTk
-        except ImportError:
-            # 没装 Pillow，退回用 tkinter 原生 PhotoImage
-            # 原生只支持 PNG/GIF，且不能用 subsample 做非整数缩放
-            from tkinter import PhotoImage
-            return PhotoImage(file=str(icon_png))
-
-        img = Image.open(icon_png).convert("RGBA")
-        # 兼容不同版本的 Pillow
-        resample = getattr(getattr(Image, "Resampling", Image),
-                           "LANCZOS", None)
-        if resample is not None:
-            img = img.resize((size, size), resample)
-        else:
-            img = img.resize((size, size))
-        return ImageTk.PhotoImage(img)
+        from tkinter import PhotoImage
+        img = PhotoImage(file=str(icon_png))
+        
+        # 如果原图比目标尺寸大，用整数倍缩小
+        if img.width() > size:
+            # 计算缩小比例，例如原图 256，目标 96，factor = 2
+            factor = max(1, img.width() // size)
+            img = img.subsample(factor, factor)
+            
+        return img
     except Exception:
         return None
 

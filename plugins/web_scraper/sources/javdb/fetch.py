@@ -303,8 +303,7 @@ async def _process_one(
 
     try:
         info = await page.inner_text(
-            "html > body > section > div > div:nth-of-type(5) "
-            "> div > div > div:nth-of-type(2)"
+            "html > body > section > div > div:nth-of-type(4) > div > div > div:nth-of-type(2)"
         )
     except Exception:
         info = ""

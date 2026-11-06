@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import re
+import os
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -255,15 +256,26 @@ class CodeExtractor:
         return results
 
     def _collect_candidates(self, directory: Path, recursive: bool) -> list[Path]:
-        """列出目录下所有受支持的文件。rglob 的迭代器只能消费一次，先收集。"""
-        iterator = directory.rglob("*") if recursive else directory.glob("*")
+        """列出目录下所有受支持的文件。使用 os.scandir 提升 I/O 性能。"""
         candidates: list[Path] = []
-        for path in iterator:
+        
+        def _scan(dir_path: Path):
             try:
-                if path.is_file() and self.is_supported(path.name):
-                    candidates.append(path)
+                with os.scandir(dir_path) as it:
+                    for entry in it:
+                        try:
+                            # entry.is_file() 在这里非常快，自带缓存
+                            if entry.is_file():
+                                if self.is_supported(entry.name):
+                                    candidates.append(Path(entry.path))
+                            elif recursive and entry.is_dir():
+                                _scan(Path(entry.path))
+                        except OSError:
+                            continue
             except OSError:
-                continue
+                pass
+
+        _scan(directory)
         return candidates
 
     def _process_one(self, path: Path) -> ScrapeResult | None:

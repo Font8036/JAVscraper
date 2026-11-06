@@ -18,6 +18,7 @@ from tkinter import filedialog, ttk
 from typing import Callable
 
 from ..fileio import SaveFailure, classify_save_error, publish, timestamped_path
+from ..gui.common import set_window_icon   # ← 新增
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +46,9 @@ def ask_locked_action(parent, target, exc) -> str | None:
     answer: dict[str, str | None] = {"value": None}
 
     win = tk.Toplevel(top)
+    win.withdraw()                # 先隐藏，防止图标闪现
     win.title("无法保存文件")
+    set_window_icon(win)          # 设置软件图标
     win.transient(top)
     win.resizable(False, False)
 
@@ -86,6 +89,7 @@ def ask_locked_action(parent, target, exc) -> str | None:
     win.geometry(f"+{max(x, 0)}+{max(y, 0)}")
     retry_btn.focus_set()
     win.grab_set()
+    win.deiconify()               # ← 新增：一切就绪后再显示
     top.wait_window(win)
     return answer["value"]
 

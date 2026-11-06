@@ -14,7 +14,7 @@ from ..config import ScraperConfig
 from ..paths import log_dir
 from ..reports import make_run_directory, save_csv, save_json, save_text_report
 from ..scraper import CodeExtractor, ScrapeResult
-from ..widgets import Column, HistoryPathInput, SortableTreeview
+from ..widgets import Column, HistoryPathInput, SortableTreeview, Stopwatch
 from .common import QueueLogHandler, human_size
 
 
@@ -139,6 +139,8 @@ class ScanTab(ttk.Frame):
         ttk.Label(self, text="日志:").pack(anchor="w", pady=(6, 0))
         self.log = tk.Text(self, height=self.app.app_config.log_height, wrap="none", state="disabled")
         self.log.pack(fill="both")
+        # 初始化计时器
+        self.stopwatch = Stopwatch(self, self.stats_var)
 
     def _save_column_weights(self, table_id: str, weights: dict[str, float]) -> None:
         self.app.app_config.table_column_weights[table_id] = weights
@@ -262,7 +264,8 @@ class ScanTab(ttk.Frame):
         self.result_tree.clear()
         self._clear_log()
         self._results = []
-        self.stats_var.set("正在统计文件数…")
+        # 启动计时器，替换原来的 self.stats_var.set("正在统计文件数…")
+        self.stopwatch.start(prefix="正在统计文件数…")
         self.app.set_status("正在扫描…")
         self._scanning = True
         self.btn_scan.configure(state="disabled")
@@ -333,9 +336,9 @@ class ScanTab(ttk.Frame):
         scanned = self._scanned_count
         if total > 0:
             pct = scanned / total * 100
-            self.stats_var.set(f"扫描中 {scanned}/{total}（{pct:.1f}%）")
+            self.stopwatch.set_prefix(f"扫描中 {scanned}/{total}（{pct:.1f}%）")
         else:
-            self.stats_var.set("未发现可扫描的文件")
+            self.stopwatch.set_prefix("未发现可扫描的文件")
 
     def _insert_row(self, r: ScrapeResult) -> None:
         self.result_tree.append_row(r)
@@ -343,8 +346,13 @@ class ScanTab(ttk.Frame):
     def _finish(self, results: list[ScrapeResult] | None) -> None:
         self._scanning = False
         self.btn_scan.configure(state="normal")
+
+        # 停止计时
+        elapsed = self.stopwatch.stop()
+        time_str = Stopwatch.fmt_readable(elapsed)
+
         if results is None:
-            self.stats_var.set("扫描失败")
+            self.stats_var.set(f"扫描失败（耗时 {time_str}）")
             self.app.set_status("就绪")
             return
 
@@ -363,6 +371,8 @@ class ScanTab(ttk.Frame):
         if inherited:
             parts.append(f"父目录继承 {inherited}")
         parts.append(f"总成功率 {ratio:.1f}%")
+        parts.append(f"耗时 {time_str}")  # ← 拼入耗时
+        
         self.stats_var.set("，".join(parts))
         self.app.set_status("扫描完成")
 

@@ -19,6 +19,7 @@ from av_scraper.widgets import (
     Column,
     ConfigForm,
     SortableTreeview,
+    Stopwatch,
     resolve_locked_target,
 )
 
@@ -243,6 +244,8 @@ class JavdbSource:
         ttk.Label(root, text="日志:").pack(anchor="w", pady=(6, 0))
         self._log = tk.Text(root, height=self.ctx.app_config.log_height, wrap="none", state="disabled")
         self._log.pack(fill="both")
+        # 初始化计时器
+        self.stopwatch = Stopwatch(root, self._status_var)
 
     def _schedule(self, fn, delay_ms: int = 200) -> None:
         if self._root is not None:
@@ -459,8 +462,8 @@ class JavdbSource:
         self._working = True
         if self._btn_fetch: self._btn_fetch.configure(state="disabled")
         if self._btn_stop: self._btn_stop.configure(state="normal")
-        if self._status_var:
-            self._status_var.set(f"爬取中 0/{len(targets)}")
+        # 启动计时器
+        self.stopwatch.start(prefix=f"爬取中 0/{len(targets)}")
 
         threading.Thread(
             target=self._fetch_worker, args=(targets,), daemon=True,
@@ -628,18 +631,26 @@ class JavdbSource:
 
         if self._status_var:
             total = len(self._rows)
-            self._status_var.set(f"爬取中 {idx0 + 1}/{total}")
+            self.stopwatch.set_prefix(f"爬取中 {idx0 + 1}/{total}")
 
     def _finish_fetch(self, count: Optional[int]) -> None:
         self._working = False
         if self._btn_fetch: self._btn_fetch.configure(state="normal")
         if self._btn_stop: self._btn_stop.configure(state="disabled")
+        
+        # 停止计时
+        elapsed = self.stopwatch.stop()
+        time_str = Stopwatch.fmt_readable(elapsed)
+        
         if count is None:
-            if self._status_var: self._status_var.set("爬取失败")
+            if self._status_var:
+                self._status_var.set(f"爬取失败（耗时 {time_str}）")
             summary = "爬取失败"
         else:
-            if self._status_var: self._status_var.set(f"爬取完成，共 {count} 条")
+            if self._status_var:
+                self._status_var.set(f"爬取完成，共 {count} 条，耗时 {time_str}")
             summary = f"共抓取 {count} 条"
+            
         if self._config.notify_toast:
             show_toast("JavDB 刮削完成", summary)
         if self._config.notify_sound:

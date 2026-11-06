@@ -74,7 +74,7 @@ def extract_category(info_text: str) -> str:
 
 
 def extract_comments(comment_text: str) -> str:
-    """提取最多 3 条评论，用中文句号连接。兼容简体与繁体。"""
+    """提取最多 10 条评论，用中文句号连接。兼容简体与繁体。"""
     if not comment_text:
         return ""
     if "暫無內容" in comment_text or "暂无内容" in comment_text:
@@ -86,7 +86,7 @@ def extract_comments(comment_text: str) -> str:
         return "暂无评论"
 
     comments: list[str] = []
-    for i, m in enumerate(date_matches[:3]):
+    for i, m in enumerate(date_matches[:10]):
         start = m.end()
         end = (
             date_matches[i + 1].start()

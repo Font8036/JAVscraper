@@ -103,8 +103,16 @@ def show_about(parent, plugins=None):
     # ---------- 标题 ----------
     ttk.Label(frame, text="JAVscraper",
               font=("", 16, "bold")).pack()
+              
+    # 版本号（调整了下方间距，给版权信息留位置）
     ttk.Label(frame, text=f"版本 {__version__}",
-              foreground="#666").pack(pady=(2, 12))
+              foreground="#666").pack(pady=(2, 4))
+              
+    # ---------- 新增：版权信息 ----------
+    ttk.Label(
+        frame, text="Copyright (c) [2026] [Font8036]",
+        foreground="#999", font=("", 9)
+    ).pack(pady=(0, 12))
 
     # ---------- 简介 ----------
     ttk.Label(
@@ -113,11 +121,24 @@ def show_about(parent, plugins=None):
         justify="center",
     ).pack(pady=(0, 12))
 
-    # ---------- GitHub 链接 ----------
-    link = tk.Label(frame, text="GitHub 仓库",
-                    foreground="#0a58ca", cursor="hand2")
-    link.pack()
-    link.bind("<Button-1>", lambda _e: webbrowser.open(_GITHUB_URL))
+    # ---------- GitHub 链接与问题反馈 ----------
+    link_frame = ttk.Frame(frame)
+    link_frame.pack()
+
+    # 仓库链接
+    repo_link = tk.Label(link_frame, text="GitHub 仓库",
+                         foreground="#0a58ca", cursor="hand2")
+    repo_link.pack(side="left")
+    repo_link.bind("<Button-1>", lambda _e: webbrowser.open(_GITHUB_URL))
+
+    # 分隔符
+    ttk.Label(link_frame, text="  |  ", foreground="#ccc").pack(side="left")
+
+    # 新增：问题反馈链接
+    issue_link = tk.Label(link_frame, text="问题反馈",
+                          foreground="#0a58ca", cursor="hand2")
+    issue_link.pack(side="left")
+    issue_link.bind("<Button-1>", lambda _e: webbrowser.open(f"{_GITHUB_URL}/issues"))
 
     # ---------- 已加载插件 ----------
     if plugins:

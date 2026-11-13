@@ -29,10 +29,17 @@ class ScraperConfig:
     )
     output_filename: str = field(
         default="scraper_results.json",
+        metadata={"hidden": True},  # ← 直接隐藏
+    )
+    max_scan_history: int = field(
+        default=20,
         metadata={
-            "label": "输出文件名",
-            "kind": "str",
-            "tooltip": "扫描结果 JSON 的文件名。移动功能需要读取这份文件。一般不需要修改。",
+            "label": "结果保留上限（次）",
+            "kind": "int",
+            "row_group": "dd",
+            "tooltip": "保存扫描结果（JSON/CSV/TXT）的最大次数。\n"
+                       "超过上限会自动删除最旧的记录，防止 log 文件夹无限膨胀。\n"
+                       "填入 0 则永久保留，不自动清理。",
         },
     )
     recursive_processing: bool = field(

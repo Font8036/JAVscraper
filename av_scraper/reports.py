@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import datetime
 import json
+import shutil
 from pathlib import Path
 
 from .fileio import write_via_temp
@@ -109,3 +110,32 @@ def save_csv(results: list[ScrapeResult], path: Path) -> None:
                              datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")])
 
     write_via_temp(path, _write)
+
+def cleanup_old_runs(base: str | Path, max_runs: int) -> None:
+    """清理旧的扫描结果目录。
+    
+    只删除符合 'YYYYMMDD_HHMMSS' 命名格式（15个字符）的文件夹，
+    防止误删用户放在输出目录里的其他文件。
+    """
+    if max_runs <= 0:
+        return
+        
+    base = Path(base)
+    if not base.exists() or not base.is_dir():
+        return
+        
+    # 找出所有符合时间戳格式的目录
+    run_dirs = []
+    for d in base.iterdir():
+        if d.is_dir() and len(d.name) == 15 and d.name[:8].isdigit() and d.name[8] == "_":
+            run_dirs.append(d)
+            
+    # 按时间戳降序排序（最新的在前面）
+    run_dirs.sort(key=lambda d: d.name, reverse=True)
+    
+    # 把超出上限的目录删掉
+    for d in run_dirs[max_runs:]:
+        try:
+            shutil.rmtree(d, ignore_errors=True)
+        except Exception:
+            pass

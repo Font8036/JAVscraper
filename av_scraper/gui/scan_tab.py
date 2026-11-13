@@ -12,7 +12,7 @@ from typing import Any
 
 from ..config import ScraperConfig
 from ..paths import log_dir
-from ..reports import make_run_directory, save_csv, save_json, save_text_report
+from ..reports import make_run_directory, save_csv, save_json, save_text_report, cleanup_old_runs
 from ..scraper import CodeExtractor, ScrapeResult
 from ..widgets import Column, HistoryPathInput, SortableTreeview, Stopwatch
 from .common import QueueLogHandler, human_size
@@ -26,12 +26,41 @@ class ScanTab(ttk.Frame):
         self._scanning = False
         self._results: list[ScrapeResult] = []
         self._current_json_path: Path | None = None
+        self._current_csv_path: Path | None = None   # ← 新增
         self._total_files = 0          # ← 新增
         self._scanned_count = 0        # ← 新增
         self._build()
         self._attach_logger()
         self.sync_from_config()
         self.after(80, self._poll)
+        # 启动时自动寻找最近一次的 CSV 记录（仅限默认 log 目录）
+        self._auto_find_latest_csv()
+
+    def _auto_find_latest_csv(self) -> None:
+        """软件启动时，尝试去默认 log 目录下找最近一次的 CSV。"""
+        try:
+            base = log_dir()
+            if not base.exists():
+                return
+            
+            # 找所有 15 位时间戳格式的目录，按名称倒序（最新的在前面）
+            run_dirs = [
+                d for d in base.iterdir() 
+                if d.is_dir() and len(d.name) == 15 and d.name[8] == "_"
+            ]
+            if not run_dirs:
+                return
+                
+            run_dirs.sort(key=lambda d: d.name, reverse=True)
+            latest_dir = run_dirs[0]
+            
+            csv_path = latest_dir / "extraction_table.csv"
+            if csv_path.exists():
+                self._current_csv_path = csv_path
+                if hasattr(self, "btn_open_csv") and self.btn_open_csv:
+                    self.btn_open_csv.configure(state="normal")
+        except Exception:
+            pass  # 失败就保持灰显，不影响正常使用
 
     # ---------- 布局 ----------
     def _build(self) -> None:
@@ -93,6 +122,12 @@ class ScanTab(ttk.Frame):
         ttk.Label(actions, textvariable=self.stats_var).pack(
             side="left", padx=12,
         )
+        # 新增：打开 CSV 按钮
+        self.btn_open_csv = ttk.Button(
+            actions, text="📂 打开最近 CSV", 
+            command=self._on_open_csv, state="disabled"
+        )
+        self.btn_open_csv.pack(side="right")
 
         saved_weights = self.app.app_config.table_column_weights.get("scan_tab", {})
 
@@ -100,7 +135,7 @@ class ScanTab(ttk.Frame):
             self,
             table_id="scan_tab",
             on_save_weights=lambda w: self._save_column_weights("scan_tab", w),
-            initial_weights=self.app.app_config.table_column_weights.get("scan_tab", {}), # ← 加在这里
+            initial_weights=saved_weights, # ← 加在这里
             height=self.app.app_config.table_height,
             columns=[
                 Column("icon", "", 40,
@@ -141,6 +176,18 @@ class ScanTab(ttk.Frame):
         self.log.pack(fill="both")
         # 初始化计时器
         self.stopwatch = Stopwatch(self, self.stats_var)
+
+    def _on_open_csv(self) -> None:
+        if not self._current_csv_path or not self._current_csv_path.exists():
+            messagebox.showwarning("提示", "CSV 文件不存在或尚未生成。")
+            return
+            
+        try:
+            # 使用系统默认程序打开 CSV（Windows 会自动调用 Excel 或 WPS）
+            import os
+            os.startfile(self._current_csv_path)
+        except Exception as e:
+            messagebox.showerror("打开失败", f"无法打开文件：\n{e}")
 
     def _save_column_weights(self, table_id: str, weights: dict[str, float]) -> None:
         self.app.app_config.table_column_weights[table_id] = weights
@@ -288,9 +335,12 @@ class ScanTab(ttk.Frame):
 
             base = cfg.output_directory or str(log_dir())
             run_dir = make_run_directory(base)
+            # 执行保存
             save_json(results, run_dir / cfg.output_filename)
             save_text_report(results, run_dir / "extraction_report.txt")
             save_csv(results, run_dir / "extraction_table.csv")
+            # 清理旧记录
+            cleanup_old_runs(base, cfg.max_scan_history)
 
             self._q.put(("json", str(run_dir / cfg.output_filename)))
             self._q.put(("done", results))
@@ -316,6 +366,10 @@ class ScanTab(ttk.Frame):
                     self._update_progress()
                 elif kind == "json":
                     self._current_json_path = Path(payload)   # ← 新增
+                    # 记录 CSV 路径
+                    self._current_csv_path = self._current_json_path.parent / "extraction_table.csv"
+                    if self.btn_open_csv:
+                        self.btn_open_csv.configure(state="normal")
                     self.app.move_tab.set_input_json(payload)
                     self._append_log(f"[提示] 结果已同步到移动页：{payload}")
                 elif kind == "log_error":

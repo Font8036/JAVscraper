@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import json
+import os
 import sys
 import unicodedata
 from collections import Counter
@@ -34,7 +35,14 @@ from .processor import (
     PlannedOperation,
     find_target_collisions,
 )
-from .reports import make_run_directory, save_csv, save_json, save_text_report, to_dict
+from .reports import (
+    cleanup_old_runs,
+    make_run_directory,
+    save_csv,
+    save_json,
+    save_text_report,
+    to_dict,
+)
 from .scraper import CodeExtractor, ScrapeResult
 from .texts import (
     COLLISION_TAIL_CLI,
@@ -248,14 +256,19 @@ def filter_planned(
 # ---------------------------------------------------------------------------
 # 报告路径
 # ---------------------------------------------------------------------------
-def resolve_report_paths(args: argparse.Namespace, scfg: ScraperConfig) -> dict[str, Path]:
-    """要写哪几份报告。``--no-reports`` 与 ``--json -`` 都返回空字典（不落盘）。
+def resolve_report_paths(
+    args: argparse.Namespace, scfg: ScraperConfig,
+) -> tuple[dict[str, Path], Path | None]:
+    """要写哪几份报告，以及清理旧记录时的基准目录。
 
-    文件名与图形界面一致：JSON 用配置里的「输出文件名」，
-    另外两份固定叫 extraction_report.txt / extraction_table.csv。
+    ``--no-reports`` 与 ``--json -`` 返回 ``({}, None)``（不落盘）。
+    只有走"时间戳运行目录"这条路时才返回基准目录；``--flat`` 和显式 ``--json``
+    都是用户自己指定的位置，不去清理它（免得删掉用户自己的东西）。
+    清理规则与图形界面一致：按配置里的「结果保留上限」保留最近几次。
     """
     if args.no_reports or args.json == "-":
-        return {}
+        return {}, None
+    cleanup_base: Path | None = None
     if args.json:
         base = Path(args.json).expanduser().parent
         json_path = Path(args.json).expanduser()
@@ -268,12 +281,13 @@ def resolve_report_paths(args: argparse.Namespace, scfg: ScraperConfig) -> dict[
             base = log_dir()
         if not args.flat:
             base = make_run_directory(base)
+            cleanup_base = base.parent
         json_path = base / scfg.output_filename
     return {
         "json": json_path,
         "txt": base / "extraction_report.txt",
         "csv": base / "extraction_table.csv",
-    }
+    }, cleanup_base
 
 
 # ---------------------------------------------------------------------------
@@ -329,6 +343,42 @@ def format_scan_summary(
     return lines
 
 
+# ---------------------------------------------------------------------------
+# 跨盘检测
+# ---------------------------------------------------------------------------
+def _device_id(path: Path) -> int | None:
+    """路径所在物理卷的 ID；路径还不存在时向上找最近的已存在父目录。"""
+    current = path
+    while True:
+        try:
+            return os.stat(current).st_dev
+        except FileNotFoundError:
+            if current == current.parent:
+                return None
+            current = current.parent
+        except OSError:
+            return None
+
+
+def cross_drive_operations(
+    planned: Sequence[PlannedOperation],
+) -> list[PlannedOperation]:
+    """挑出源和目标不在同一个物理卷上的操作。
+
+    跨盘移动本质是"复制 + 删除"，会明显变慢；界面在执行前会专门警告一次，
+    命令行也把数量报出来（不然用户会以为程序卡住了）。
+    """
+    result: list[PlannedOperation] = []
+    for op in planned:
+        if op.status == "skip":
+            continue
+        src_dev = _device_id(op.src)
+        dst_dev = _device_id(op.dst)
+        if src_dev is not None and dst_dev is not None and src_dev != dst_dev:
+            result.append(op)
+    return result
+
+
 def format_plan_preview(
     planned: Sequence[PlannedOperation],
     *,
@@ -339,15 +389,19 @@ def format_plan_preview(
     total: int,
     only: set[str],
     part_naming: bool = False,
+    cross_drive: int = 0,
     limit: int = DEFAULT_LIMIT,
     verbose: bool = False,
 ) -> list[str]:
-    lines = align_rows([
+    rows: list[tuple[str, str]] = [
         ("输入 JSON", str(json_path)),
         ("目标目录", target or "(未设置)"),
         ("文件冲突处理", conflict),
         ("分段命名", "启用" if part_naming else "关闭"),
-    ])
+    ]
+    if cross_drive:
+        rows.append(("跨盘移动", f"{cross_drive} 个（复制 + 删除，会明显变慢）"))
+    lines = align_rows(rows)
     lines += [
         "",
         f"扫描结果 {total} 条，其中 {recognized} 条识别到番号"
@@ -513,7 +567,7 @@ def cmd_scan(args: argparse.Namespace, ui: Console) -> int:
     exit_code = EXIT_OK
     written: list[Path] = []
     # 只算一次：算里面会按时间戳建运行目录，多次调用会得到不同的目录
-    report_paths = resolve_report_paths(args, scfg)
+    report_paths, cleanup_base = resolve_report_paths(args, scfg)
     for kind, writer in (("json", save_json), ("txt", save_text_report), ("csv", save_csv)):
         path = report_paths.get(kind)
         if path is None:
@@ -525,6 +579,11 @@ def cmd_scan(args: argparse.Namespace, ui: Console) -> int:
             exit_code = EXIT_FAILED
         else:
             written.append(path)
+
+    # 保留上限：和图形界面共用同一个配置（--keep 可临时覆盖，0 = 不清理）
+    if cleanup_base is not None and written:
+        keep = args.keep if args.keep is not None else scfg.max_scan_history
+        cleanup_old_runs(cleanup_base, keep)
 
     if args.json == "-":
         ui.data_line(json.dumps(
@@ -582,6 +641,8 @@ def cmd_move(args: argparse.Namespace, ui: Console) -> int:
         ui.err_line(f"[错误] --only 指定的番号一个都没匹配到：{'、'.join(sorted(only))}")
         return EXIT_USAGE
 
+    cross_drive = cross_drive_operations(planned)
+
     ui.out_lines(format_plan_preview(
         planned,
         json_path=json_path,
@@ -591,6 +652,7 @@ def cmd_move(args: argparse.Namespace, ui: Console) -> int:
         total=len(results),
         only=only,
         part_naming=pcfg.multipart_naming,
+        cross_drive=len(cross_drive),
         limit=args.limit,
         verbose=args.verbose,
     ))
@@ -601,6 +663,12 @@ def cmd_move(args: argparse.Namespace, ui: Console) -> int:
                     f"（同一个目标会被多个文件写入）")
         ui.out_line("")
         ui.out_lines(build_collision_message(collisions, tail=COLLISION_TAIL_CLI).splitlines())
+
+    if cross_drive:
+        sample = cross_drive[0]
+        ui.err_line(f"[提醒] 有 {len(cross_drive)} 个文件要跨盘移动"
+                    f"（本质是复制 + 删除，会明显变慢）")
+        ui.err_line(f"        例如：{sample.src} → {sample.dst}")
 
     if not planned:
         ui.err_line("[提示] 没有需要处理的文件，没有做任何改动")
@@ -615,7 +683,11 @@ def cmd_move(args: argparse.Namespace, ui: Console) -> int:
         if not ui.interactive:
             ui.err_line("[错误] 当前不是交互式终端，执行前必须加 --yes 明确确认")
             return EXIT_USAGE
-        if not ui.confirm(f"确认移动 {len(planned)} 个文件？[y/N]"):
+        prompt = f"确认移动 {len(planned)} 个文件？"
+        if cross_drive:
+            prompt = (f"确认移动 {len(planned)} 个文件"
+                      f"（其中 {len(cross_drive)} 个跨盘，会明显变慢）？")
+        if not ui.confirm(f"{prompt}[y/N]"):
             ui.err_line("[取消] 没有做任何改动")
             return EXIT_FAILED
 
@@ -810,6 +882,8 @@ def build_parser(prog: str = "javscraper") -> argparse.ArgumentParser:
                       help="不写任何报告文件，只看结果")
     scan.add_argument("--limit", type=int, default=DEFAULT_LIMIT, metavar="N",
                       help="摘要里最多列几条明细，0 表示不限（默认 %(default)s）")
+    scan.add_argument("--keep", type=int, default=None, metavar="N",
+                      help="扫描结果最多保留几次（覆盖配置，0 表示不清理）")
     scan.set_defaults(func=cmd_scan)
 
     move = sub.add_parser(

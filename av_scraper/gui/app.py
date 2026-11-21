@@ -51,7 +51,7 @@ class App(tk.Tk):
         from .common import apply_topmost_state
         topmost_state = apply_topmost_state(self, "main", self.app_config)
         self.topmost_var.set(topmost_state)
-        
+
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         # 布局完成，显示窗口
         self.deiconify()
@@ -80,7 +80,7 @@ class App(tk.Tk):
 
         # 默认尺寸
         dw, dh = scale_size(self, user_scale, 720, 480)
-        
+
         # 2. 恢复窗口位置/大小（如果有记录的话）
         from .common import restore_window_state
         if "main" in self.app_config.window_geometries:
@@ -118,12 +118,12 @@ class App(tk.Tk):
                 parent=self,
             ):
                 return
-                
+
         # 保存主窗口的尺寸和位置
         from .common import save_window_state
         save_window_state(self, "main", self.app_config)
         self._save_config()   # 把包含几何信息的配置写入磁盘
-        
+
         self.destroy()
 
     def _build(self) -> None:
@@ -425,7 +425,7 @@ class App(tk.Tk):
             scraper_form = forms["scraper"]
 
             # 标志位，防止 load 时触发懒保存
-            self._is_loading_ui = False 
+            self._is_loading_ui = False
 
             # 1. 动态更新下拉选项
             def _refresh_group_choices():
@@ -448,7 +448,7 @@ class App(tk.Tk):
                 def on_group_changed(*_args):
                     if getattr(self, "_is_loading_ui", False):
                         return  # 正在加载数据，忽略联动
-                        
+
                     old_group = getattr(self, "_last_active_group", "默认")
                     new_group = combo_var.get()
                     if old_group == new_group:
@@ -496,7 +496,7 @@ class App(tk.Tk):
 
         def collect() -> AppConfig:
             new = AppConfig()
-            
+
             # 同步当前分组的文本框内容
             scraper_form = forms["scraper"]
             v_widget = scraper_form.get_widget("video_extensions")
@@ -548,13 +548,13 @@ class App(tk.Tk):
         )]
 
     def _open_group_manager(self, scraper_form):
-        from tkinter import simpledialog, messagebox
-        
+        from tkinter import messagebox, simpledialog
+
         dialog = tk.Toplevel(self)
         dialog.withdraw()               # 1. 先隐藏窗口，防止闪现
         dialog.title("管理扩展名分组")
         set_window_icon(dialog)        # ← 加上这一行
-        
+
         # 1. 获取真正的父窗口（即当前打开的那个配置窗口）
         parent_window = scraper_form.winfo_toplevel()
 
@@ -563,7 +563,7 @@ class App(tk.Tk):
         w, h = scale_size(self, user_scale, 150, 150)
         x = parent_window.winfo_rootx() + (parent_window.winfo_width() - w) // 2
         y = parent_window.winfo_rooty() + (parent_window.winfo_height() - h) // 2
-        
+
         dialog.geometry(f"{w}x{h}+{max(0, x)}+{max(0, y)}")
         dialog.minsize(w//2, h//2)
         dialog.transient(parent_window)
@@ -604,7 +604,7 @@ class App(tk.Tk):
                 refresh_list()
                 choices = list(self.app_config.scraper.extension_groups.keys())
                 scraper_form.update_choices("active_extension_group", choices)
-                
+
                 combo = scraper_form.get_widget("active_extension_group")
                 if combo and combo.get() == name:
                     self._is_loading_ui = True  # 静默切换
@@ -635,7 +635,7 @@ class App(tk.Tk):
                 refresh_list()
                 choices = list(self.app_config.scraper.extension_groups.keys())
                 scraper_form.update_choices("active_extension_group", choices)
-                
+
                 combo = scraper_form.get_widget("active_extension_group")
                 if combo and combo.get() == old_name:
                     self._is_loading_ui = True

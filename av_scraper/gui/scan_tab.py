@@ -12,7 +12,7 @@ from typing import Any
 
 from ..config import ScraperConfig
 from ..paths import log_dir
-from ..reports import make_run_directory, save_csv, save_json, save_text_report, cleanup_old_runs
+from ..reports import cleanup_old_runs, make_run_directory, save_csv, save_json, save_text_report
 from ..scraper import CodeExtractor, ScrapeResult
 from ..widgets import Column, HistoryPathInput, SortableTreeview, Stopwatch
 from .common import QueueLogHandler, human_size
@@ -42,18 +42,18 @@ class ScanTab(ttk.Frame):
             base = log_dir()
             if not base.exists():
                 return
-            
+
             # 找所有 15 位时间戳格式的目录，按名称倒序（最新的在前面）
             run_dirs = [
-                d for d in base.iterdir() 
+                d for d in base.iterdir()
                 if d.is_dir() and len(d.name) == 15 and d.name[8] == "_"
             ]
             if not run_dirs:
                 return
-                
+
             run_dirs.sort(key=lambda d: d.name, reverse=True)
             latest_dir = run_dirs[0]
-            
+
             csv_path = latest_dir / "extraction_table.csv"
             if csv_path.exists():
                 self._current_csv_path = csv_path
@@ -124,7 +124,7 @@ class ScanTab(ttk.Frame):
         )
         # 新增：打开 CSV 按钮
         self.btn_open_csv = ttk.Button(
-            actions, text="📂 打开最近 CSV", 
+            actions, text="📂 打开最近 CSV",
             command=self._on_open_csv, state="disabled"
         )
         self.btn_open_csv.pack(side="right")
@@ -181,7 +181,7 @@ class ScanTab(ttk.Frame):
         if not self._current_csv_path or not self._current_csv_path.exists():
             messagebox.showwarning("提示", "CSV 文件不存在或尚未生成。")
             return
-            
+
         try:
             # 使用系统默认程序打开 CSV（Windows 会自动调用 Excel 或 WPS）
             import os
@@ -426,7 +426,7 @@ class ScanTab(ttk.Frame):
             parts.append(f"父目录继承 {inherited}")
         parts.append(f"总成功率 {ratio:.1f}%")
         parts.append(f"耗时 {time_str}")  # ← 拼入耗时
-        
+
         self.stats_var.set("，".join(parts))
         self.app.set_status("扫描完成")
 

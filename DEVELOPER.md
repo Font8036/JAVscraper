@@ -21,6 +21,7 @@
 - [Widgets 组件库](#widgets-组件库)
   - [ConfigForm](#configform)
   - [SortableTreeview](#sortabletreeview)
+  - [Stopwatch](#stopwatch)
   - [HistoryPathInput](#historypathinput)
   - [ToolTip / QuestionMark / LabelWithTip](#tooltip-questionmark-labelwithtip)
 - [GUI 层](#gui-层)
@@ -35,9 +36,11 @@
   - [开发一个新插件](#开发一个新插件)
   - [内置插件一览](#内置插件一览)
 - [构建与分发](#构建与分发)
+  - [三个版本的区别](#三个版本的区别)
   - [核心版](#核心版)
   - [完整版](#完整版)
   - [命令行版（控制台）](#命令行版控制台)
+  - [分发（7z 压缩包）](#分发7z-压缩包)
 - [测试](#测试)
 - [扩展点](#扩展点)
 - [已知限制](#已知限制)
@@ -47,7 +50,8 @@
 
 ## 项目定位与设计原则
 
-- **核心零依赖**。除标准库外不引入任何第三方包，让核心版保持在 15 MB 量级、能被单文件 exe 打包。
+- **核心零依赖**。除标准库外不引入任何第三方包，核心版解压后约 37 MB（压缩包约 11 MB）。
+- **发布形态是"多文件文件夹 + 压缩包"**。从 v0.5.0 起三个版本统一用 PyInstaller `-D`（目录模式）打包、7z 分发：单文件 exe 每次启动都要自解压，行为特征容易被 Windows Defender / SmartScreen 误拦；多文件目录误判明显更少，启动也更快。
 - **核心与 GUI 解耦**。`scraper` / `processor` / `reports` 是纯逻辑，可单测、可 CLI、可接任意 GUI。
 - **配置即数据**。所有可调项都是 dataclass 字段，GUI 依据 metadata 自动生成控件，加字段不改 UI 代码。
 - **插件与核心彻底分离**。核心不 import 插件的任何业务模块，只通过 `plugin_api.py` 约定接口。
@@ -150,7 +154,8 @@ JAVscraper/
     │   ├── config_form.py          # ConfigForm / calc_label_width
     │   ├── history_path.py         # HistoryPathInput
     │   ├── save_guard.py           # 保存失败（文件被占用）的三按钮处置窗
-    │   ├── sortable_treeview.py    # SortableTreeview / Column
+    │   ├── sortable_treeview.py    # SortableTreeview / Column（列宽记忆、多行复制）
+    │   ├── stopwatch.py            # Stopwatch（状态栏计时）
     │   └── tooltip.py              # ToolTip / QuestionMark / LabelWithTip
     └── gui/
         ├── __init__.py
@@ -260,7 +265,7 @@ def scan_directory(            # 单目录包装
 
 **注意点**：
 
-- `rglob` / `glob` 返回的迭代器**只能消费一次**。当前实现先收集候选列表再逐个处理，两轮循环分别用 `iterator` 和 `candidates`。**这是一个容易踩的坑**——曾导致扫描结果为空；
+- 目录遍历用 `os.scandir` 递归实现（`_collect_candidates`），比 `rglob` 快 3~5 倍；`entry.is_file()` 走系统缓存，尽量别对每个条目再 `stat` 一次；
 - 总数回调 `on_total` 在收集完成后触发一次；单文件回调 `progress` 在每个文件处理完后触发；
 - **多目录先裁剪再扫**：`scan_directories` 会规范化路径、去重，并把被上级目录包住的目录剔掉，一次性通过 `on_skipped(pairs)` 报出去——`pairs` 是 `list[tuple[Path, Path]]`，每项是 `(被跳过的目录, 覆盖它的目录)`（GUI 写日志、CLI 每个打一行 stderr 提醒）。不这么做，同一批文件会被扫两遍，`-partN` 编号和"父目录继承"都会算错；
 - 从父目录继承番号：文件名匹配失败时，尝试用父文件夹名再匹配一次。这是为了处理 `ABP-123/xxx.mp4` 这种"文件夹带番号、文件名不带"的结构。继承来的结果同样算 `status == "extracted"`（`inherited=True` 只是标记来源），所以移动阶段照常处理。
@@ -367,14 +372,15 @@ class MoveOperation:
 - `save_json(results, path)`
 - `save_text_report(results, path)`
 - `save_csv(results, path)`
+- `cleanup_old_runs(base, max_runs)`：只删 `base` 下**命名符合 `YYYYMMDD_HHMMSS`（15 字符）的目录**，按名字倒序保留最新 `max_runs` 个；`max_runs <= 0` 直接返回（= 不清理）。`shutil.rmtree(..., ignore_errors=True)`，删不掉就算了。GUI 的扫描完成和 CLI 的 `scan` 都调它。
 
 **输出格式**：
 
 | 文件 | 内容 |
 |---|---|
-| `scraper_results.json` | 供 processor 读取的完整结果 |
-| `extraction_report.txt` | 人可读，含统计与明细 |
-| `extraction_table.csv` | 三列（文件名 / 提取码 / 来源）+ 统计信息 |
+| `scraper_results.json` | 供 processor 读取的完整结果（文件名取 `scraper.output_filename`，该配置项已隐藏，但字段仍然存在） |
+| `extraction_report.txt` | 人可读，含统计、明细与图例（`✓` 提取 / `↳` 继承 / `✎` 手动修改 / `✗` 未识别） |
+| `extraction_table.csv` | 三列（文件名 / 提取码 / 来源）+ 统计信息，来源区分"文件名 / 父目录继承 / 手动修改" |
 
 ---
 
@@ -403,13 +409,31 @@ class MoveOperation:
 ```
 AppConfig
 ├── scraper: ScraperConfig
+│   ├── output_directory / output_filename(隐藏) / max_scan_history
+│   ├── recursive_processing / inherit_from_parent
+│   ├── active_extension_group / extension_groups(隐藏)
+│   ├── separators / video_extensions / attachment_extensions
+│   ├── known_alpha_prefixes
+│   └── recent_scan_dirs(隐藏) / scan_directories(隐藏)
 ├── processor: ProcessorConfig
-├── confirm_on_close: bool
-├── max_recent_dirs: int
-├── log_height: int
-├── table_height: int
+│   ├── target_directory / move_to_extracted_folder
+│   ├── video_naming / attachment_naming / multipart_naming
+│   ├── existing_file_handling
+│   └── recent_target_dirs(隐藏) / input_json(隐藏)
+├── confirm_on_close / auto_check_update / max_recent_dirs
+├── log_height / table_height / ui_scale
+├── table_column_weights(隐藏) / window_geometries(隐藏) / window_topmost(隐藏)
 └── (插件配置由各插件自行管理)
 ```
+
+**扩展名分组**：`active_extension_group`（可见下拉）+ `extension_groups`（隐藏 dict，形如
+`{"默认": {"video": [...], "attachment": [...]}}`）。管理入口在配置窗口「扩展名分组」旁的「管理」
+（新建 / 删除 / 重命名，「默认」组不可删改）。切换分组时先把当前文本框写回旧分组、再载入新组；
+老配置没有 `extension_groups` 时，`load` 会用现有的 `video_extensions` / `attachment_extensions`
+初始化「默认」组。**扫描与移动永远只读 `video_extensions` / `attachment_extensions`**，分组只是编辑器。
+
+**自动记忆类字段**：`window_geometries`（各窗口尺寸/位置）、`table_column_weights`（表格列宽占比）、
+`window_topmost`（置顶状态）都由 GUI 在关闭窗口时写入，不在配置窗展示；被写到屏幕外的坐标会在恢复时丢弃。
 
 **字段声明方式**：
 
@@ -489,6 +513,8 @@ def log_dir() -> Path: ...
 - 命令行**不写配置**（`config` 是只读子命令）。目标目录的缺省值取 `target_directory`，为空则取 `recent_target_dirs[0]`，与界面预填的逻辑保持一致。
 - **`scan` 一次可以给多个目录**：先把所有目录校验一遍（有一个不是目录就一个都不扫、退出码 1），再交给核心的 `scan_directories`；嵌套目录由 `on_skipped` 回调告知，命令行在 stderr 打「……在……里面，已跳过」——这是提醒，不是错误，退出码不受影响。
 - **分段命名用 `--part-naming` / `--no-part-naming` 覆盖配置**（默认跟 `multipart_naming`）。改名结果落在 `PlannedOperation.dst` 上，所以 `-v` 的明细里能直接看到 `XXX-cd1.mp4 → ABP-123-part1.mp4`；预览摘要只多一行「分段命名 启用/关闭」，不另开一个清单。
+- **保留上限复用核心的 `reports.cleanup_old_runs`**：只有走"时间戳运行目录"时才清理（`--flat` 和显式 `--json` 是用户自己指定的位置，不去动）；次数取配置的 `max_scan_history`，可用 `--keep N` 临时覆盖（0 = 不清理）。
+- **跨盘检测与界面同一套判定**：取源/目标"最近的已存在祖先"的 `st_dev` 比较，`skip` 不计；只把数量写进预览摘要（「跨盘移动」一行）并在 stderr 给一条带示例的提醒，确认问句也会带上跨盘数量——命令行没有"取消/继续"的额外弹窗，`--yes` 就是一次确认。
 
 ### texts.py
 
@@ -579,6 +605,21 @@ stv.tree                   # 底层 ttk.Treeview
 
 **数据是黑盒**：组件不感知数据结构，`Column.display` / `Column.sort` 回调负责把数据翻译成显示值和排序键。
 
+### Stopwatch
+
+**职责**：状态栏里的轻量计时器（扫描、Jellyfin 的提取/生成都用它显示耗时）。
+
+```python
+sw = Stopwatch(root, target_var, prefix="扫描中…")
+sw.start(prefix="正在统计文件数…")   # 重新开始；prefix 可省略
+sw.set_prefix("扫描中 12/340（3.5%）")
+elapsed = sw.stop()                   # 停止并返回秒数
+Stopwatch.fmt_compact(elapsed)        # "01:23"，状态栏用（宽度稳定，不抖动）
+Stopwatch.fmt_readable(elapsed)       # "1 分 23.4 秒"，日志用
+```
+
+纯 Tk `after()` 轮询，没有线程；`stop()` 会取消挂起的回调。
+
 ### HistoryPathInput
 
 **职责**：带历史下拉的路径输入框。
@@ -641,7 +682,9 @@ LabelWithTip(parent, "输出目录:", tip="...")  # 标签 + ?
 `gui/app.py` 的 `App`：
 
 - 两个核心 Tab：`ScanTab` / `MoveTab`；
-- 状态栏：左侧显示状态文本，右侧有「配置」「关于」按钮；
+- 状态栏：左侧显示状态文本，右侧有「📌 置顶」勾选框、「关于」「配置」按钮；
+- 窗口位置/大小与置顶状态会持久化：`gui/common.py` 的 `restore_window_state` / `save_window_state` / `apply_topmost_state` / `save_topmost_state`，数据存在 `AppConfig.window_geometries` / `window_topmost`；屏幕外的旧坐标会被丢弃，只恢复尺寸；
+- 配置里开了「启动时检查更新」时，启动 3 秒后后台静默查询 GitHub releases：有新版本弹窗（带更新说明和下载链接），已是最新则只在状态栏提示；关于对话框里也有「检查更新」按钮；
 - 加载插件：`_load_plugins(notebook)` 遍历 `discover_plugins()` 返回的 `PluginSpec` 列表；
 - 每个插件失败都会显示一个**错误提示 Tab**，不阻塞核心；
 - 顶部状态栏的 Tab 编号从核心 Tab 之后接续（插件从 3 开始编号）。
@@ -947,21 +990,37 @@ for /d /r plugins %%d in (__pycache__) do @if exist "%%d" rmdir /s /q "%%d" 2>nu
 
 或者直接双击根目录的 `清除缓存.bat`。
 
+### 三个版本的区别
+
+| 版本 | 入口 | 子系统 | 额外参数 | 产物目录 | 压缩包 / 解压后 |
+|---|---|---|---|---|---|
+| 核心版 | `run.py` | 窗口（`-w`） | `--add-data "assets;assets"` | `dist/JAVscraper_core_<版本>_win64/` | 约 11.3 MB / 37 MB |
+| 完整版 | `run_full.py` | 窗口（`-w`） | assets + plugins + playwright | `dist/JAVscraper_full_<版本>_win64/` | 约 41.5 MB / 148 MB |
+| 命令行版 | `run_cli.py` | 控制台（`-c`） | 无（不读 assets、不用插件） | `dist/JAVscraper_cli/` | 约 6.3 MB / 20 MB |
+
+> **从 v0.5.0 起三个版本统一用 `-D` 目录模式**，不再发单文件 exe：单文件每次启动都要把自身解压到临时目录，行为特征很像恶意程序，更容易被 Windows Defender / SmartScreen 拦下来；多文件目录误判明显更少，启动也更快。代价是必须整个文件夹一起分发。
+>
+> 本地仓库根目录保留同名 `.spec`（gitignore，不进版本库）；`pyinstaller XXX.spec` 与下表命令等价，但**下表命令才是权威**，改参数时两边同步。
+
 ### 核心版
 
 ```cmd
-pyinstaller -F -w -n JAVscraper_core_win64 ^
+pyinstaller -D -w -n JAVscraper_core_v0.5.23_win64 ^
+    --icon=assets/icon.ico ^
+    --add-data "assets;assets" ^
     --paths . ^
     --clean ^
     run.py
 ```
 
-产物：`dist/JAVscraper_core_win64.exe`（约 15 MB）。
+产物：`dist/JAVscraper_core_v0.5.23_win64/`，里面有同名 exe（目录约 37 MB）。
 
 ### 完整版
 
 ```cmd
-pyinstaller -D -w -n JAVscraper_full_win64 ^
+pyinstaller -D -w -n JAVscraper_full_v0.5.23_win64 ^
+    --icon=assets/icon.ico ^
+    --add-data "assets;assets" ^
     --paths . ^
     --paths plugins ^
     --add-data "plugins;plugins" ^
@@ -972,44 +1031,54 @@ pyinstaller -D -w -n JAVscraper_full_win64 ^
     run_full.py
 ```
 
-产物：`dist/JAVscraper_full_win64/`（约 150 MB）。
+产物：`dist/JAVscraper_full_v0.5.23_win64/`（约 148 MB）。
 
 | 参数 | 作用 |
 |---|---|
-| `-D` | 目录模式。单文件模式每次启动要解压 150 MB，很慢；完整版用 `-D` |
+| `-D` | 目录模式（**三个版本都用它**，见上） |
 | `--paths plugins` | 让 PyInstaller 静态分析到插件包 |
-| `--add-data "plugins;plugins"` | 把 `plugins/` 目录打进 exe 的 `_MEIPASS`（Windows 用 `;`，Linux/macOS 用 `:`） |
+| `--add-data "plugins;plugins"` | 把 `plugins/` 目录打进 `_internal`（Windows 用 `;`，Linux/macOS 用 `:`） |
 | `--collect-all playwright` | 收集 Playwright 的 Node 驱动和所有子模块 |
 | `--collect-submodules web_scraper` | 递归收集 `web_scraper` 包下所有子模块，**加新源时不用改打包命令** |
 
 ### 命令行版（控制台）
 
 ```cmd
-pyinstaller -F -c -n JAVscraper_cli ^
+pyinstaller -D -c -n JAVscraper_cli ^
     --paths . ^
     --clean ^
     run_cli.py
 ```
 
-产物：`dist/JAVscraper_cli.exe`（约 15 MB，和核心版差不多）。
+产物：`dist/JAVscraper_cli/`（约 20 MB，里面是 `JAVscraper_cli.exe`）。
 
 | 参数 | 作用 |
 |---|---|
-| `-c` | **和另外两个 exe 唯一的实质区别**：控制台子系统。`-w` 的窗口子系统没有 stdout，在 cmd 里跑什么都看不到 |
+| `-c` | 控制台子系统。`-w` 的窗口子系统没有 stdout，在 cmd 里跑什么都看不到 |
 | 不 `--add-data` | 命令行不读 `assets/`，也不用插件 |
 | 入口是 `run_cli.py` | 它只 import `av_scraper.cli`，不 import `gui`，所以打出来的包里没有 Tk |
 
-产物名和另外两个 exe 一样不带版本号（方便加进 PATH、反复敲），版本用 `JAVscraper_cli.exe --version` 看。
+exe 名**不带版本号**（方便加进 PATH、反复敲），版本用 `JAVscraper_cli.exe --version` 看；核心版/完整版的 exe 与文件夹带版本号，便于同时保留多个版本对照。
 
-### 分发
+### 分发（7z 压缩包）
 
-- 核心版：直接发 `JAVscraper_core_win64.exe`；
-- 完整版：把 `dist/JAVscraper_full_win64/` 打包成 zip/7z，用户解压后运行里面的 exe。
+1. 先按下一节删掉插件私有配置；
+2. 把 `dist/` 下的**整个文件夹**压成 7z：
 
 ```cmd
 cd dist
-tar -a -c -f JAVscraper_full_win64.zip JAVscraper_full_win64
+7z a -t7z JAVscraper_core_v0.5.23_win64.7z JAVscraper_core_v0.5.23_win64
+7z a -t7z JAVscraper_full_v0.5.23_win64.7z JAVscraper_full_v0.5.23_win64
+7z a -t7z JAVscraper_cli.7z JAVscraper_cli
 ```
+
+3. **发版前自检**：解压一次 → 双击 exe 能启动 → 「关于」里的版本号正确 → 核心版看不到爬虫页、完整版能看到 → CLI 版 `--version` 正确。
+
+| 包 | 压缩后 | 解压后 |
+|---|---|---|---|
+| `JAVscraper_cli.7z` | 约 6.3 MB | 约 20 MB |
+| `JAVscraper_core_vX.Y.Z_win64.7z` | 约 11.3 MB | 约 37 MB |
+| `JAVscraper_full_vX.Y.Z_win64.7z` | 约 41.5 MB | 约 148 MB |
 
 ### 打包前删除私人配置
 
@@ -1018,8 +1087,8 @@ tar -a -c -f JAVscraper_full_win64.zip JAVscraper_full_win64
 在打包后手动删除：
 
 ```cmd
-del /q dist\JAVscraper_full_win64\_internal\plugins\web_scraper\config.json
-del /q dist\JAVscraper_full_win64\_internal\plugins\jellyfin_nfo\config.json
+del /q dist\JAVscraper_full_v0.5.23_win64\_internal\plugins\web_scraper\config.json
+del /q dist\JAVscraper_full_v0.5.23_win64\_internal\plugins\jellyfin_nfo\config.json
 ```
 
 或者干脆在打包前把源码里的插件 `config.json` 临时移走。
@@ -1028,7 +1097,7 @@ del /q dist\JAVscraper_full_win64\_internal\plugins\jellyfin_nfo\config.json
 
 ```cmd
 :: 带控制台的调试版，能看到完整 traceback
-pyinstaller -F -c --debug=imports -n JAVscraper_full_debug ^
+pyinstaller -D -c --debug=imports -n JAVscraper_full_debug ^
     --paths . --paths plugins ^
     --add-data "plugins;plugins" ^
     --collect-all playwright ^
@@ -1043,7 +1112,7 @@ pyinstaller -F -c --debug=imports -n JAVscraper_full_debug ^
 |---|---|
 | 完整版大小和核心版一样 | 打包环境没装插件依赖，`--collect-all playwright` 静默失败 |
 | 有标签页但没有某个插件 | spec 里的 `datas` 丢了 `('plugins', 'plugins')`，或漏了 `--collect-submodules` |
-| 启动慢 | 用了 `-F`，改成 `-D` |
+| 启动慢 | 用了 `-F`（单文件每次启动都要自解压）；本项目已统一改 `-D` |
 | 杀软误报 | 常见，`-D` 模式误报率明显低于 `-F` |
 | 插件报 `No module named 'xxx'` | 该依赖不在 `run_full.py` 的 import 列表里，也不在 `--collect-submodules` 覆盖范围内 |
 
@@ -1098,12 +1167,14 @@ python test/gen_test_files.py --clean
 
 ### 单元测试
 
+当前 **234 个用例**全绿：
+
 ```bash
 python -m pytest -q                        # 全部
 python -m pytest test/test_scraper.py -q   # 只跑番号提取
 ```
 
-- `test/test_scraper.py`：`CodeExtractor` 的提取规则与边界、文件分类、`scan_directory`
+- `test/test_scraper.py`：`CodeExtractor` 的提取规则与边界、文件分类、`scan_directory` / `scan_directories`
 - `test/test_processor.py`：目标路径规划与三种冲突处理、"跟随视频命名"、移动执行的统计与进度回调（`progress` / `on_moved`）、移动记录的读写与撤回（含"撤回可重复执行"）
 - `test/test_config.py`：配置读写、旧字段迁移、非法选项回退，以及"程序改过配置要报告出来"
 - `test/test_gui_text.py`：预览重名提醒与失败日志的文案（纯字符串函数，不建窗口）
@@ -1183,8 +1254,11 @@ results = ext.scan_directory("D:/videos")
 
 - **插件不能热重载**。改插件代码需要重启程序；如果行为不符预期，先清 `__pycache__`。
 - **撤回仅保留最近一次**。连续执行多次移动只撤回最后一次。
-- **扫描的目录遍历为单线程**。1 万个文件通常在 1 秒内完成；网络盘可能需要数秒。已考虑过 `os.scandir` 优化，但收益不明显，暂未采用。
-- **完整版体积大**。约 150 MB，绝大部分是 Playwright 的 Node 驱动（93 MB `node.exe`）。
+- **扫描结果默认只留最近 20 次**（`max_scan_history`，0 = 永久保留）。清理只碰符合 `YYYYMMDD_HHMMSS` 命名的目录，输出目录里其他文件不动。
+- **全盘遍历仍是单线程**。用 `os.scandir` 递归，本地盘 1 万个文件通常 1~2 秒；网络盘、机械盘会明显慢，扫描期间状态栏一直有进度和耗时。
+- **完整版体积大**。解压后约 148 MB（压缩包约 41.5 MB），绝大部分是 Playwright 的 Node 驱动（`node.exe` 约 93 MB）。
+- **发布包都是多文件文件夹**。从 v0.5.0 起不出单文件 exe；用户必须解压并保留整个文件夹，不能只拿 exe。
+- **跨盘移动无法暂停**。而且判定依据是物理卷（`st_dev`），同一物理盘上不同盘符的挂载点会被判成同盘，反之亦然。
 - **Playwright 打包兼容性**。PyInstaller 打 Playwright 需要 `--collect-all`，不同版本之间略有差异，升级前先在测试目录试打。
 - **`plugin_loader` 依赖 `importlib.import_module` 检查依赖**，不读 `importlib.metadata`。这意味着无法做版本约束（如 `openpyxl>=3.1`），只能判断"有没有"。
 - **`web_scraper` 的启动慢是正常的**。它加载了 Playwright，首屏会慢 1~2 秒。这是完整版体积和功能换来的。

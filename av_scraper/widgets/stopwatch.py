@@ -2,12 +2,13 @@ import time
 import tkinter as tk
 from typing import Optional
 
+
 class Stopwatch:
     def __init__(self, root: tk.Misc, target_var: tk.StringVar, prefix: str = ""):
         self.root = root
         self.target_var = target_var
         self.prefix = prefix
-        
+
         self._start_time: float = 0.0
         self._running = False
         self._after_id: Optional[str] = None
@@ -17,10 +18,10 @@ class Stopwatch:
         if self._after_id:
             self.root.after_cancel(self._after_id)
             self._after_id = None
-            
+
         if prefix:
             self.prefix = prefix
-            
+
         self._start_time = time.perf_counter()
         self._running = True
         self._update_loop()
@@ -35,7 +36,7 @@ class Stopwatch:
         if self._after_id:
             self.root.after_cancel(self._after_id)
             self._after_id = None
-            
+
         elapsed = time.perf_counter() - self._start_time if self._start_time else 0.0
         return elapsed
 
@@ -49,7 +50,7 @@ class Stopwatch:
         elapsed = time.perf_counter() - self._start_time
         # 建议：界面跳动时用紧凑格式，宽度稳定不抖动
         time_str = self.fmt_compact(elapsed)
-        
+
         if self.prefix:
             self.target_var.set(f"{self.prefix}  ({time_str})")
         else:
@@ -72,7 +73,7 @@ class Stopwatch:
             return f"{seconds:.3f} 秒"
         if seconds < 60.0:
             return f"{seconds:.1f} 秒"
-            
+
         total_seconds = int(seconds)
         m, s = divmod(total_seconds, 60)
         h, m = divmod(m, 60)

@@ -151,7 +151,7 @@ class FileProcessor:
                     base += lcs
             # 清理首尾可能多余的分隔符
             base = base.strip("-_ .")
-            
+
             if not base:
                 base = code
 

@@ -6,8 +6,8 @@
 from __future__ import annotations
 
 import logging
-import re
 import os
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -258,7 +258,7 @@ class CodeExtractor:
     def _collect_candidates(self, directory: Path, recursive: bool) -> list[Path]:
         """列出目录下所有受支持的文件。使用 os.scandir 提升 I/O 性能。"""
         candidates: list[Path] = []
-        
+
         def _scan(dir_path: Path):
             try:
                 with os.scandir(dir_path) as it:

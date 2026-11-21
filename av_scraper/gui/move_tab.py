@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import os
 import logging
+import os
 import queue
 import threading
 import tkinter as tk
@@ -92,7 +92,7 @@ class MoveTab(ttk.Frame):
         def _on_resize(event):
             # 减 10 是为了留一点边距，防止文字贴边
             self.warn_label.configure(wraplength=max(100, event.width - 10))
-        
+
         self.bind("<Configure>", _on_resize)
 
         # 状态映射
@@ -121,9 +121,6 @@ class MoveTab(ttk.Frame):
             if op.status == "overwrite":
                 return ("overwrite",)
             return ()
-        
-        # 先获取配置里之前保存的权重
-        saved_weights = self.app.app_config.table_column_weights.get("move_tab", {})
 
         self.result_tree = SortableTreeview(
             self,
@@ -277,7 +274,7 @@ class MoveTab(ttk.Frame):
         for op in selected:
             src_dev = self._get_device_id(Path(op.src))
             dst_dev = self._get_device_id(Path(op.dst))
-            
+
             # 只有当两边的设备 ID 都成功获取，且不相等时，才算跨盘
             if src_dev is not None and dst_dev is not None and src_dev != dst_dev:
                 cross_drive_ops.append(op)

@@ -299,6 +299,50 @@ def test_scan_with_one_bad_directory_scans_nothing(work_dir):
     assert not out.exists()                   # 有一个目录不对就一个都不扫
 
 
+def test_scan_keeps_only_the_configured_number_of_runs(work_dir):
+    src = work_dir / "src"
+    make_file(src / "ABP-123.mp4")
+    out = work_dir / "out"
+    for name in ("20200101_000000", "20200102_000000", "20200103_000000"):
+        make_file(out / name / "scraper_results.json")
+
+    res = run_cli(["scan", str(src), "-o", str(out), "--keep", "2",
+                   *config_args(work_dir)])
+
+    assert res.code == 0
+    runs = sorted(p.name for p in out.iterdir() if p.is_dir())
+    assert len(runs) == 2                      # 这一次 + 上一次
+    assert "20200103_000000" in runs
+
+
+def test_scan_keep_zero_disables_cleanup(work_dir):
+    src = work_dir / "src"
+    make_file(src / "ABP-123.mp4")
+    out = work_dir / "out"
+    for name in ("20200101_000000", "20200102_000000"):
+        make_file(out / name / "scraper_results.json")
+
+    res = run_cli(["scan", str(src), "-o", str(out), "--keep", "0",
+                   *config_args(work_dir)])
+
+    assert res.code == 0
+    assert len([p for p in out.iterdir() if p.is_dir()]) == 3
+
+
+def test_scan_retention_follows_config_by_default(work_dir):
+    src = work_dir / "src"
+    make_file(src / "ABP-123.mp4")
+    out = work_dir / "out"
+    for name in ("20200101_000000", "20200102_000000"):
+        make_file(out / name / "scraper_results.json")
+    write_config(work_dir, {"scraper": {"max_scan_history": 1}})
+
+    res = run_cli(["scan", str(src), "-o", str(out), *config_args(work_dir)])
+
+    assert res.code == 0
+    assert len([p for p in out.iterdir() if p.is_dir()]) == 1
+
+
 def test_scan_quiet_prints_nothing_on_success(work_dir):
     src = work_dir / "src"
     make_file(src / "ABP-123.mp4")
@@ -484,6 +528,21 @@ def test_move_unrecognized_results_are_left_alone(work_dir):
     assert "1 条保持原样，不参与移动" in res.out
     assert "没有需要处理的文件" in res.err
     assert src.exists()
+
+
+def test_move_warns_when_target_is_on_another_drive(work_dir, monkeypatch):
+    src = make_file(work_dir / "src" / "ABP-123.mp4")
+    results = write_results(work_dir / "results.json", [entry(src, "ABP-123")])
+
+    # 造出"源和目标在不同物理卷"：图形界面靠 st_dev 判断，这里直接给两个值
+    monkeypatch.setattr(cli, "_device_id", lambda p: 2 if "dst" in str(p) else 1)
+
+    res = run_cli(["move", str(results), "-t", str(work_dir / "dst"), "--dry-run",
+                   *config_args(work_dir)])
+
+    assert res.code == 0
+    assert "跨盘移动" in res.out                    # 预览里有这一行
+    assert "跨盘移动" in res.err and "复制 + 删除" in res.err
 
 
 @pytest.mark.parametrize(
@@ -699,10 +758,10 @@ def test_config_list_shows_labels_and_sections(work_dir):
     res = run_cli(["config", *config_args(work_dir)])
 
     assert res.code == 0
-    for expected in ("[扫描]", "[移动]", "[通用]", "配置文件", "输出文件名"):
+    for expected in ("[扫描]", "[移动]", "[通用]", "配置文件", "结果保留上限", "扩展名分组"):
         assert expected in res.out
-    assert "my.json" in res.out
     assert "跳过" in res.out
+    assert "输出文件名" not in res.out                  # 已隐藏，命令行列表里不出现
     assert "known_alpha_prefixes" not in res.out       # 隐藏字段不列
     assert "共 " in res.out and "项）" in res.out       # 几百个前缀要截断
 

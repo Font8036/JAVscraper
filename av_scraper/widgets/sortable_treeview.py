@@ -19,7 +19,7 @@ import tkinter as tk
 from dataclasses import dataclass
 from tkinter import font as tkfont
 from tkinter import ttk
-from typing import Any, Callable, Literal, Optional
+from typing import Any, Callable, Literal
 
 _AnchorT = Literal["nw", "n", "ne", "w", "center", "e", "sw", "s", "se"]
 _COL_ALL = "全部列"
@@ -66,8 +66,8 @@ class SortableTreeview(ttk.Frame):
         editable: bool = False,      # ← 新增：组件级总开关
         context_menu: bool = True,       # ← 新增
         filter_func: Callable[[Any, str], bool] | None = None,
-        on_save_weights: Optional[Callable[[dict[str, float]], None]] = None,  # 新增：保存回调
-        initial_weights: Optional[dict[str, float]] = None,  # ← 确保参数里有这个
+        on_save_weights: Callable[[dict[str, float]], None] | None = None,  # 新增：保存回调
+        initial_weights: dict[str, float] | None = None,  # ← 确保参数里有这个
         on_sort_changed: Callable[[str | None, str], None] | None = None,
         on_selection_changed: Callable[[], None] | None = None,
     ):
@@ -687,7 +687,7 @@ class SortableTreeview(ttk.Frame):
             col = self._columns_by_key.get(key)
             if col is None or col.kind == "checkbox":
                 return None
-                
+
             # ---- 新增：多选状态处理 ----
             current_selection = self.tree.selection()
             if iid not in current_selection:
@@ -736,7 +736,7 @@ class SortableTreeview(ttk.Frame):
         else:
             if iid is None or cell_key is None:
                 return
-                
+
             # ---- 动态判断是否多选 ----
             selected_iids = self.tree.selection()
             is_multi = iid in selected_iids and len(selected_iids) > 1
@@ -745,13 +745,13 @@ class SortableTreeview(ttk.Frame):
                 label="复制单元格",
                 command=lambda i=iid, k=cell_key: self._copy_cell(i, k),
             )
-            
+
             row_label = f"复制选中的 {len(selected_iids)} 行" if is_multi else "复制整行"
             menu.add_command(
                 label=row_label,
                 command=lambda i=iid: self._copy_selected_or_row(i),
             )
-            
+
             if self._checkbox_key is not None:
                 menu.add_separator()
                 menu.add_command(
@@ -796,7 +796,7 @@ class SortableTreeview(ttk.Frame):
     def _copy_selected_or_row(self, clicked_iid: str) -> None:
         """复制当前右键的行；如果是多选状态，则复制所有选中的行。"""
         selected_iids = self.tree.selection()
-        
+
         # 如果右键的行在选中集合里，且选了不止一行，复制多行
         if clicked_iid in selected_iids and len(selected_iids) > 1:
             targets = selected_iids
@@ -809,7 +809,7 @@ class SortableTreeview(ttk.Frame):
             if data is not None:
                 # 用制表符拼接各列，方便粘贴到 Excel
                 lines.append("\t".join(self._row_cells(data)))
-                
+
         if lines:
             self._copy_to_clipboard("\n".join(lines))
 
@@ -959,7 +959,7 @@ class SortableTreeview(ttk.Frame):
 
         # 2. 弹性列可用的剩余宽度
         flex_available = max(50, available_width - fixed_width)
-        
+
         # 3. 计算剩余列的权重总和
         total_weight = sum(c.weight if c.weight > 0 else c.width for c in flex_cols)
         if total_weight <= 0:
@@ -973,7 +973,7 @@ class SortableTreeview(ttk.Frame):
                 new_px = flex_available - used_width
             else:
                 new_px = int(flex_available * (w / total_weight))
-            
+
             self.tree.column(c.key, width=max(new_px, 30))
             used_width += max(new_px, 30)
 
@@ -987,16 +987,16 @@ class SortableTreeview(ttk.Frame):
         """用户松开鼠标时触发，对比列宽是否改变。"""
         if self._drag_start_widths is None:
             return
-            
+
         changed = False
         for c in self._columns:
             # 这里 Pylance 就能识别出 self._drag_start_widths 是 dict 了
             if self.tree.column(c.key, "width") != self._drag_start_widths.get(c.key):
                 changed = True
                 break
-                
+
         self._drag_start_widths = None
-        
+
         # 只有列宽真的改变了，才防抖保存
         if changed:
             if self._save_timer:
@@ -1022,7 +1022,7 @@ class SortableTreeview(ttk.Frame):
 
         # 2. 转换为百分比权重
         new_weights = {k: round(v / total, 3) for k, v in current_widths.items()}
-        
+
         # 3. 同步更新内存里的 Column 对象
         for c in self._columns:
             if c.auto_stretch:

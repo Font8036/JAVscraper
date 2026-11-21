@@ -70,13 +70,13 @@ def _load_about_icon(size: int = 96):
 
         from tkinter import PhotoImage
         img = PhotoImage(file=str(icon_png))
-        
+
         # 如果原图比目标尺寸大，用整数倍缩小
         if img.width() > size:
             # 计算缩小比例，例如原图 256，目标 96，factor = 2
             factor = max(1, img.width() // size)
             img = img.subsample(factor, factor)
-            
+
         return img
     except Exception:
         return None
@@ -103,11 +103,11 @@ def show_about(parent, plugins=None):
     # ---------- 标题 ----------
     ttk.Label(frame, text="JAVscraper",
               font=("", 16, "bold")).pack()
-              
+
     # 版本号（调整了下方间距，给版权信息留位置）
     ttk.Label(frame, text=f"版本 {__version__}",
               foreground="#666").pack(pady=(2, 4))
-              
+
     # ---------- 新增：版权信息 ----------
     ttk.Label(
         frame, text="Copyright (c) [2026] [Font8036]",

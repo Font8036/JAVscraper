@@ -69,7 +69,7 @@ class ConfigWindow(tk.Toplevel):
         # ---- 恢复记忆或居中显示 ----
         from .common import restore_window_state
         app_cfg = getattr(parent, "app_config", None)
-        
+
         if app_cfg is not None and "config" in app_cfg.window_geometries:
             # 有记录：恢复位置和大小
             restore_window_state(self, "config", app_cfg, w, h)
@@ -264,19 +264,19 @@ class ConfigWindow(tk.Toplevel):
     def _save_state_and_destroy(self) -> None:
         """关闭前保存配置窗口的尺寸/位置，并写盘。"""
         from .common import save_window_state
-        
+
         parent_app = self.master
         # 使用 getattr 获取属性，Pylance 不会报错，且运行期极其安全
         app_cfg = getattr(parent_app, "app_config", None)
-        
+
         if app_cfg is not None:
             save_window_state(self, "config", app_cfg)
-            
+
             # 获取主窗口的保存方法并调用
             save_func = getattr(parent_app, "_save_config", None)
             if callable(save_func):
                 save_func()
-                
+
         self.destroy()
 
     def _on_ok(self) -> None:

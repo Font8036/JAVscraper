@@ -9,6 +9,7 @@ import tkinter as tk
 from pathlib import Path
 from typing import Any
 
+
 class QueueLogHandler(logging.Handler):
     """把日志记录推入 queue，由主线程消费后写入 Text 控件。"""
 
@@ -146,7 +147,7 @@ def restore_window_state(
             vy = window.winfo_vrooty()
             vw = window.winfo_vrootwidth()
             vh = window.winfo_vrootheight()
-            
+
             # 如果坐标完全在屏幕外（比如拔了副屏），则丢弃坐标，只恢复尺寸
             if not (vx <= x < vx + vw - 50 and vy <= y < vy + vh - 50):
                 x = y = None
@@ -172,20 +173,20 @@ def save_window_state(
     try:
         state = window.state()
         zoomed = state == "zoomed"
-        
+
         # 获取几何信息（如果是最大化，这会返回全屏尺寸，但我们可以用 normal 状态下的记录）
         # 实际上 Tk 中 zoomed 状态下 winfo_width 也是全屏的。
         # 我们获取正常状态下的尺寸，如果是最大化，需要临时切回 normal 拿尺寸吗？
         # 更好的办法：读取当前的 x/y/w/h，如果最大化，保留 w/h 为上次的 normal 尺寸。
-        
+
         # Tkinter 的 geometry() 在最大化时通常返回类似 "1920x1080+0+0"
         geo = window.geometry()
         # 解析 "WxH+X+Y"
         import re
         m = re.match(r"(\d+)x(\d+)\+(-?\d+)\+(-?\d+)", geo)
-        
+
         existing = app_config.window_geometries.get(window_id, {})
-        
+
         if m:
             w, h, x, y = map(int, m.groups())
             if zoomed:

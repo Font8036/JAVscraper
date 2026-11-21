@@ -18,7 +18,7 @@ from tkinter import filedialog, ttk
 from typing import Callable
 
 from ..fileio import SaveFailure, classify_save_error, publish, timestamped_path
-from ..gui.common import set_window_icon   # ← 新增
+from ..gui.common import set_window_icon  # ← 新增
 
 logger = logging.getLogger(__name__)
 

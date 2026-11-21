@@ -15,7 +15,7 @@ LogFn = Callable[[str], None]
 
 _VIDEO_EXTS = {
     ".mkv", ".mp4", ".avi", ".rmvb", ".mov", ".wmv",
-    ".flv", ".webm", ".m4v", ".ts", ".m2ts",
+    ".flv", ".webm", ".m4v", ".ts", ".m2ts", ".vob", ".mpg", ".mpeg", ".3gp", ".f4v",
 }
 
 
@@ -25,6 +25,7 @@ def organize_movie_folder(
     movie_data: dict,
     config: JellyfinNfoConfig,
     on_log: Optional[LogFn] = None,
+    video_exts: Optional[set] = None,  # ← 新增
 ) -> dict:
     """处理一个电影文件夹。"""
     log = on_log or (lambda s: None)
@@ -39,7 +40,7 @@ def organize_movie_folder(
     }
 
     # 1. 找视频
-    videos = _find_videos(folder_path)
+    videos = _find_videos(folder_path, video_exts)
     result["video_count"] = len(videos)
     if not videos:
         result["message"] = "无视频文件"
@@ -67,10 +68,13 @@ def organize_movie_folder(
     return result
 
 
-def _find_videos(folder: Path) -> list:
+def _find_videos(folder: Path, video_exts: Optional[set] = None) -> list:
+    # 如果没传，就用原来写死的列表兜底
+    if video_exts is None:
+        video_exts = _VIDEO_EXTS
     return [
         p for p in sorted(folder.iterdir())
-        if p.is_file() and p.suffix.lower() in _VIDEO_EXTS
+        if p.is_file() and p.suffix.lower() in video_exts
     ]
 
 

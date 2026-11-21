@@ -286,6 +286,10 @@ class JellyfinNfoPlugin:
         try:
             movie_data = read_excel_data(self._config)
             log(f"从 Excel 读取到 {len(movie_data)} 条电影数据")
+            # 获取核心配置里的视频扩展名（统一转为小写）
+            core_video_exts = {
+                e.lower() for e in self.ctx.app_config.scraper.video_extensions
+            }
 
             movie_root = Path(self._config.movie_root)
             processed = 0
@@ -312,6 +316,7 @@ class JellyfinNfoPlugin:
                 result = organize_movie_folder(
                     folder, code, movie_data[code],
                     self._config, on_log=log,
+                    video_exts=core_video_exts,  # ← 传进去
                 )
                 processed += 1
 

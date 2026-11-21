@@ -1,7 +1,7 @@
 """JavDB 源：实现 Source 协议。"""
 
 from __future__ import annotations
-
+import os
 import json
 import asyncio
 import queue
@@ -14,6 +14,7 @@ from tkinter import filedialog, messagebox, ttk
 from typing import Any, Optional
 
 from av_scraper import fileio
+from av_scraper.gui.common import center_and_show, set_window_icon
 from av_scraper.gui.config_window import ConfigPage
 from av_scraper.widgets import (
     Column,
@@ -661,13 +662,45 @@ class JavdbSource:
         self._working = False
         if self._btn_fetch: self._btn_fetch.configure(state="normal")
         if self._btn_report: self._btn_report.configure(state="normal")
+        
         if self._status_var:
             self._status_var.set("就绪" if saved_to else "生成失败")
+            
         if saved_to:
-            messagebox.showinfo(
-                "完成",
-                f"Excel 已生成：\n{saved_to}",
-                parent=self._parent())
+            self._show_excel_done_dialog(saved_to)
+
+    def _show_excel_done_dialog(self, file_path: str) -> None:
+        """生成完成后的自定义弹窗，提供快速打开功能。"""
+        win = tk.Toplevel(self._parent())
+        win.withdraw()  # 防闪烁
+        win.title("完成")
+        win.resizable(False, False)
+        set_window_icon(win)
+
+        frame = ttk.Frame(win, padding=20)
+        frame.pack(fill="both", expand=True)
+
+        ttk.Label(frame, text="Excel 已生成：", font=("", 10, "bold")).pack(anchor="w")
+        ttk.Label(frame, text=file_path, foreground="#666", wraplength=400).pack(anchor="w", pady=(4, 16))
+
+        btns = ttk.Frame(frame)
+        btns.pack(fill="x")
+
+        def open_file():
+            try:
+                os.startfile(file_path)
+                win.destroy()
+            except Exception as e:
+                messagebox.showerror("打开失败", f"无法打开文件：\n{e}", parent=win)
+
+        # 打开按钮
+        ttk.Button(btns, text="打开文件", command=open_file).pack(side="left")
+        # 关闭按钮
+        ttk.Button(btns, text="关闭", command=win.destroy).pack(side="right")
+
+        # 居中并显示
+        center_and_show(win, self._parent())
+        win.protocol("WM_DELETE_WINDOW", win.destroy)
 
     def _resolve_save_failure(self, temp: Path, target: Path, exc: OSError) -> None:
         """主线程：目标文件被占用（通常是用户还开着这张表），按用户选择处置。

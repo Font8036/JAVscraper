@@ -240,15 +240,19 @@ class JellyfinNfoPlugin:
 
         if payload is None:
             self._status_var.set(f"提取失败（耗时 {time_str}）")
+            messagebox.showerror("提取失败", "提取过程中出现错误，详情见日志。", parent=self._parent())
             return
         exported, skipped = payload
         self._status_var.set(f"提取完成：{exported} 张成功，{skipped} 张跳过，耗时 {time_str}")
-        messagebox.showinfo(
-            "提取完成",
-            f"成功 {exported} 张，跳过 {skipped} 张\n\n输出到：\n"
-            f"{self._config.cover_source_dir}",
-            parent=self._parent(),
-        )
+
+        # 成功时，只在日志区输出结果
+        self._append_log("-" * 40)
+        self._append_log(f"[完成] 提取图片结束")
+        self._append_log(f"  • 成功：{exported} 张")
+        self._append_log(f"  • 跳过：{skipped} 张")
+        self._append_log(f"  • 耗时：{time_str}")
+        self._append_log(f"  • 输出目录：{self._config.cover_source_dir}")
+        self._append_log("-" * 40)
 
     # ============================================================
     # 生成 NFO
@@ -360,19 +364,21 @@ class JellyfinNfoPlugin:
 
         if payload is None:
             self._status_var.set(f"生成失败（耗时 {time_str}）")
+            messagebox.showerror("生成失败", "生成过程中出现错误，详情见日志。", parent=self._parent())
             return
+        
         processed, missing, total = payload
         self._status_var.set(
             f"完成：{processed} 处理，{missing} 未匹配，共 {total}，耗时 {time_str}")
         
-        messagebox.showinfo(
-            "生成完成",
-            f"共 {total} 个文件夹\n"
-            f"处理成功 {processed} 个\n"
-            f"未匹配 {missing} 个\n\n"
-            f"总耗时：{time_str}",
-            parent=self._parent(),
-        )
+        # 成功时，只在日志区输出结果
+        self._append_log("-" * 40)
+        self._append_log(f"[完成] 生成 NFO 结束")
+        self._append_log(f"  • 总文件夹数：{total} 个")
+        self._append_log(f"  • 处理成功：{processed} 个")
+        self._append_log(f"  • 未匹配：{missing} 个")
+        self._append_log(f"  • 耗时：{time_str}")
+        self._append_log("-" * 40)
 
     # ============================================================
     # 队列消费

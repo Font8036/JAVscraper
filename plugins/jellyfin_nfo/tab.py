@@ -12,7 +12,7 @@ from pathlib import Path
 from tkinter import messagebox, ttk
 
 from av_scraper.plugin_api import PluginContext
-from av_scraper.widgets import Column, ConfigForm, SortableTreeview
+from av_scraper.widgets import Column, ConfigForm, SortableTreeview, Stopwatch
 
 from .config import JellyfinNfoConfig
 from .excel_reader import read_excel_data
@@ -171,6 +171,8 @@ class JellyfinNfoPlugin:
         ttk.Label(root, text="日志:").pack(anchor="w", pady=(6, 0))
         self._log = tk.Text(root, height=self.ctx.app_config.log_height, wrap="none", state="disabled")
         self._log.pack(fill="both")
+        # 初始化计时器
+        self.stopwatch = Stopwatch(self._root, self._status_var)
 
     def _save_column_weights(self, weights: dict[str, float]) -> None:
         self._config.table_column_weights = weights
@@ -202,7 +204,7 @@ class JellyfinNfoPlugin:
         self._working = True
         self._btn_extract.configure(state="disabled")
         self._btn_generate.configure(state="disabled")
-        self._status_var.set("提取图片中…")
+        self.stopwatch.start(prefix="提取图片中…")
 
         threading.Thread(target=self._extract_worker, daemon=True).start()
 
@@ -231,11 +233,16 @@ class JellyfinNfoPlugin:
         self._working = False
         self._btn_extract.configure(state="normal")
         self._btn_generate.configure(state="normal")
+
+        # 停止计时
+        elapsed = self.stopwatch.stop()
+        time_str = Stopwatch.fmt_readable(elapsed)
+
         if payload is None:
-            self._status_var.set("提取失败")
+            self._status_var.set(f"提取失败（耗时 {time_str}）")
             return
         exported, skipped = payload
-        self._status_var.set(f"提取完成：{exported} 张成功，{skipped} 张跳过")
+        self._status_var.set(f"提取完成：{exported} 张成功，{skipped} 张跳过，耗时 {time_str}")
         messagebox.showinfo(
             "提取完成",
             f"成功 {exported} 张，跳过 {skipped} 张\n\n输出到：\n"
@@ -275,7 +282,7 @@ class JellyfinNfoPlugin:
         self._working = True
         self._btn_extract.configure(state="disabled")
         self._btn_generate.configure(state="disabled")
-        self._status_var.set("生成 NFO 中…")
+        self.stopwatch.start(prefix="生成 NFO 中…")
 
         threading.Thread(target=self._nfo_worker, daemon=True).start()
 
@@ -347,17 +354,23 @@ class JellyfinNfoPlugin:
         self._working = False
         self._btn_extract.configure(state="normal")
         self._btn_generate.configure(state="normal")
+        # 停止计时
+        elapsed = self.stopwatch.stop()
+        time_str = Stopwatch.fmt_readable(elapsed)
+
         if payload is None:
-            self._status_var.set("生成失败")
+            self._status_var.set(f"生成失败（耗时 {time_str}）")
             return
         processed, missing, total = payload
         self._status_var.set(
-            f"完成：{processed} 处理，{missing} 未匹配，共 {total}")
+            f"完成：{processed} 处理，{missing} 未匹配，共 {total}，耗时 {time_str}")
+        
         messagebox.showinfo(
             "生成完成",
             f"共 {total} 个文件夹\n"
             f"处理成功 {processed} 个\n"
-            f"未匹配 {missing} 个",
+            f"未匹配 {missing} 个\n\n"
+            f"总耗时：{time_str}",
             parent=self._parent(),
         )
 
@@ -372,6 +385,9 @@ class JellyfinNfoPlugin:
                     self._append_log(payload)
                 elif kind == "row":
                     self._insert_row(payload)
+                    # 动态更新前缀，显示当前处理到了哪个番号
+                    if "code" in payload:
+                        self.stopwatch.set_prefix(f"生成 NFO 中：{payload['code']}")
                 elif kind == "extract_done":
                     self._finish_extract(payload)
                 elif kind == "nfo_done":

@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 class JellyfinNfoPlugin:
     name = "Jellyfin NFO"
-    version = "1.6"
+    version = "1.7"
 
     def __init__(self, ctx: PluginContext) -> None:
         self.ctx = ctx

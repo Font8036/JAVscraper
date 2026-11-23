@@ -183,18 +183,6 @@ async def scrape_javdb(
                     if on_progress:
                         on_progress(idx, keyword, None, f"failed:{last_error}")
 
-                # 回到搜索页
-                try:
-                    await page.go_back()
-                    await page.wait_for_selector(
-                        "#video-search", timeout=config.page_timeout_ms)
-                except Exception:
-                    try:
-                        await page.goto(
-                            config.base_url, wait_until="load")
-                    except Exception:
-                        pass
-
         finally:
             # 保存登录状态
             if config.save_state_on_exit and config.state_file:
@@ -223,8 +211,12 @@ async def _process_one(
     on_log: LogFn,
 ) -> dict:
     # ---- 搜索 ----
+    # 确保当前页面（主页或详情页）顶部有搜索框
+    await page.wait_for_selector("#video-search", timeout=config.page_timeout_ms)
     await page.fill("#video-search", "")
     await page.fill("#video-search", keyword)
+    # 等待一小段时间，模拟人类输入
+    await asyncio.sleep(config.request_delay)
     await page.wait_for_selector("#search-submit", timeout=config.page_timeout_ms)
     await page.click("#search-submit")
     # 结果出现、或"无结果"提示出现，谁先到就响应
@@ -262,11 +254,15 @@ async def _process_one(
     # 决定点击哪个
     if target_element:
         cover_url = target_cover_url
+        # 新增：点击详情前加入等待，模拟人类确认操作
+        await asyncio.sleep(config.request_delay)
         await target_element.click()
     else:
         # 兜底策略 B：没找到匹配，记警告并点击第一个
         on_log(f"{keyword}: [警告] 第一页未找到精确匹配的番号，回退点击第一条结果")
         cover_url = await page.get_attribute(".movie-list .item img", "src")
+        # 兜底点击也加个等待
+        await asyncio.sleep(config.request_delay)
         await page.click(".movie-list .item a")
 
     # ---- 进入详情 ----

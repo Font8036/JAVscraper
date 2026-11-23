@@ -63,6 +63,9 @@ class JavdbSourceConfig:
     request_delay: float = field(default=1.0, metadata={
         "label": "请求间隔(秒)", "kind": "float",
         "row_group": "params_num",
+        "tooltip": "每次操作之间的等待时间，一个番号的处理过程会使用三次等待。\n"
+                   "注意：设置过低（如 1.0 或以下）极易触发网站风控，导致封号。\n"
+                   "建议设置在 2.0 ~ 5.0 之间。"
     })
     page_timeout: int = field(default=10, metadata={
         "label": "超时(秒)", "kind": "int",

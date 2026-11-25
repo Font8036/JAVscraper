@@ -60,10 +60,10 @@ class JavdbSourceConfig:
         "choices": ["msedge", "chrome", "chromium"],
         "row_group": "browser_opts",
     })
-    request_delay: float = field(default=1.0, metadata={
+    request_delay: float = field(default=2.0, metadata={
         "label": "请求间隔(秒)", "kind": "float",
         "row_group": "params_num",
-        "tooltip": "每次操作之间的等待时间，一个番号的处理过程会使用三次等待。\n"
+        "tooltip": "每次操作之间的等待时间，一个番号的处理过程会使用四次等待。\n"
                    "注意：设置过低（如 1.0 或以下）极易触发网站风控，导致封号。\n"
                    "建议设置在 2.0 ~ 5.0 之间。"
     })

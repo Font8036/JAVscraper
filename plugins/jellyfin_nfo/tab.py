@@ -10,7 +10,7 @@ import tkinter as tk
 import traceback
 from pathlib import Path
 from tkinter import messagebox, ttk
-
+from concurrent.futures import ThreadPoolExecutor
 from av_scraper.plugin_api import PluginContext
 from av_scraper.widgets import Column, ConfigForm, SortableTreeview, Stopwatch
 
@@ -305,6 +305,16 @@ class JellyfinNfoPlugin:
             core_video_exts = {
                 e.lower() for e in self.ctx.app_config.scraper.video_extensions
             }
+            # ---- 新增：预扫描封面目录，建立 {code: Path} 缓存 ----
+            cover_cache = {}
+            cover_dir = Path(self._config.cover_source_dir) if self._config.copy_cover else None
+            if cover_dir and cover_dir.exists():
+                exts = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"}
+                for p in cover_dir.iterdir():
+                    if p.is_file() and p.suffix.lower() in exts:
+                        # 把文件名去扩展名作为 key，统一存小写方便匹配
+                        cover_cache[p.stem] = p
+                log(f"已缓存 {len(cover_cache)} 张封面图")
 
             movie_root = Path(self._config.movie_root)
             processed = 0
@@ -313,30 +323,27 @@ class JellyfinNfoPlugin:
             folders = [f for f in sorted(movie_root.iterdir()) if f.is_dir()]
             total = len(folders)
 
-            for idx, folder in enumerate(folders, start=1):
+            # 定义一个内部处理函数
+            def process_one(idx, folder):
                 code = folder.name.strip()
-                
-                # 发送进度
                 self._queue.put(("nfo_progress", (idx, total)))
-
+                
                 if code not in movie_data:
-                    log(f"跳过 {code}：未在 Excel 中找到")
+                    self._queue.put(("log", f"跳过 {code}：未在 Excel 中找到"))
                     self._queue.put(("row", {
                         "code": code, "video_count": 0,
                         "cover_ok": False, "nfo_ok": False,
                         "status": "未匹配", "tag": "warn",
                     }))
-                    missing += 1
-                    continue
+                    return "missing"
 
-                log(f"处理 {code}")
                 result = organize_movie_folder(
                     folder, code, movie_data[code],
                     self._config, on_log=log,
-                    video_exts=core_video_exts,  # ← 传进去
+                    video_exts=core_video_exts,
+                    cover_cache=cover_cache,
                 )
-                processed += 1
-
+                
                 status_text = result["message"] or "完成"
                 if not result["video_count"]:
                     tag = "warn"
@@ -353,7 +360,23 @@ class JellyfinNfoPlugin:
                     "status": status_text,
                     "tag": tag,
                 }))
-
+                return "processed"
+            
+            # 启动线程池，8 个线程通常就足够跑满 SSD 了，如果是机械硬盘建议 4 个
+            with ThreadPoolExecutor(max_workers=8) as executor:
+                # 提交所有任务
+                futures = [
+                    executor.submit(process_one, i, f) 
+                    for i, f in enumerate(folders, start=1)
+                ]
+                # 等待所有任务完成，并统计结果
+                for future in futures:
+                    res = future.result()
+                    if res == "processed":
+                        processed += 1
+                    elif res == "missing":
+                        missing += 1
+            
             self._queue.put(("nfo_done", (processed, missing, total)))
         except Exception as e:
             self._queue.put(("log", f"[错误] 生成失败: {e}"))

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import xml.etree.ElementTree as ET
-from xml.dom import minidom
 
 
 def build_nfo(movie_data: dict, poster_filename) -> str:
@@ -70,6 +69,12 @@ def build_nfo(movie_data: dict, poster_filename) -> str:
     if poster_filename:
         ET.SubElement(root, "thumb").text = poster_filename
 
-    rough = ET.tostring(root, encoding="utf-8")
-    reparsed = minidom.parseString(rough)
-    return reparsed.toprettyxml(indent="  ", encoding="utf-8").decode("utf-8")
+    # 替代 minidom 的轻量级格式化（Python 3.9+ 支持）
+    try:
+        ET.indent(root, space="  ")
+    except AttributeError:
+        pass  # 兼容老版本 Python
+
+    # 直接输出
+    rough = ET.tostring(root, encoding="utf-8", xml_declaration=True)
+    return rough.decode("utf-8")

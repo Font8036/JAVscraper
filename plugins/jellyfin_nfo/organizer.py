@@ -26,6 +26,7 @@ def organize_movie_folder(
     config: JellyfinNfoConfig,
     on_log: Optional[LogFn] = None,
     video_exts: Optional[set] = None,  # ← 新增
+    cover_cache: Optional[dict[str, Path]] = None,  # ← 新增
 ) -> dict:
     """处理一个电影文件夹。"""
     log = on_log or (lambda s: None)
@@ -50,7 +51,9 @@ def organize_movie_folder(
     # 2. 找封面 + 复制
     poster_filename = None
     if config.copy_cover and config.cover_source_dir:
-        cover_src = _find_cover(config.cover_source_dir, code)
+        # 优先从缓存找
+        cover_src = cover_cache.get(code) if cover_cache else _find_cover(config.cover_source_dir, code)
+
         if cover_src:
             copied = _copy_covers(folder_path, videos, code, cover_src, config)
             result["cover_ok"] = bool(copied)

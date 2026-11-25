@@ -32,6 +32,7 @@ def extract_covers_from_excel(
     output_dir: str | Path,
     skip_existing: bool = False,      # ← 新增参数
     on_log: Optional[LogFn] = None,
+    on_progress: Optional[Callable[[int, int], None]] = None,  # ← 新增
 ) -> tuple:
     """从 Excel 提取封面，按番号命名保存到 output_dir。
 
@@ -66,7 +67,12 @@ def extract_covers_from_excel(
 
     with zipfile.ZipFile(excel_path) as zf:
         names = set(zf.namelist())
-        for code, dispimg_id in code_to_dispimg.items():
+        total = len(code_to_dispimg)  # ← 新增：获取总数
+
+        for idx, (code, dispimg_id) in enumerate(code_to_dispimg.items(), start=1):
+            # 触发进度回调
+            if on_progress:
+                on_progress(idx, total)
             # ---- 新增：跳过已存在的逻辑 ----
             if skip_existing:
                 has_existing = any((output_dir / f"{code}{ext}").exists() for ext in all_exts)

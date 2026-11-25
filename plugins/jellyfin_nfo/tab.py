@@ -212,6 +212,9 @@ class JellyfinNfoPlugin:
         def log(msg):
             self._queue.put(("log", msg))
 
+        def progress(current, total):
+            self._queue.put(("extract_progress", (current, total)))
+
         try:
             exported, skipped = extract_covers_from_excel(
                 excel_path=self._config.input_excel,
@@ -222,6 +225,7 @@ class JellyfinNfoPlugin:
                 output_dir=self._config.cover_source_dir,
                 skip_existing=self._config.skip_existing_covers,  # ← 新增
                 on_log=log,
+                on_progress=progress,  # ← 传入回调
             )
             self._queue.put(("extract_done", (exported, skipped)))
         except Exception as e:
@@ -305,13 +309,15 @@ class JellyfinNfoPlugin:
             movie_root = Path(self._config.movie_root)
             processed = 0
             missing = 0
-            total = 0
+            # 先算出总数
+            folders = [f for f in sorted(movie_root.iterdir()) if f.is_dir()]
+            total = len(folders)
 
-            for folder in sorted(movie_root.iterdir()):
-                if not folder.is_dir():
-                    continue
+            for idx, folder in enumerate(folders, start=1):
                 code = folder.name.strip()
-                total += 1
+                
+                # 发送进度
+                self._queue.put(("nfo_progress", (idx, total)))
 
                 if code not in movie_data:
                     log(f"跳过 {code}：未在 Excel 中找到")
@@ -394,6 +400,14 @@ class JellyfinNfoPlugin:
                     # 动态更新前缀，显示当前处理到了哪个番号
                     if "code" in payload:
                         self.stopwatch.set_prefix(f"生成 NFO 中：{payload['code']}")
+                # ---- 新增：处理提取图片的进度 ----
+                elif kind == "extract_progress":
+                    current, total = payload
+                    self.stopwatch.set_prefix(f"提取图片中：{current}/{total}")
+                # ---- 新增：处理生成 NFO 的进度 ----
+                elif kind == "nfo_progress":
+                    current, total = payload
+                    self.stopwatch.set_prefix(f"生成 NFO 中：{current}/{total}")
                 elif kind == "extract_done":
                     self._finish_extract(payload)
                 elif kind == "nfo_done":

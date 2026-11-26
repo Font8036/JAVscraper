@@ -29,6 +29,7 @@ class SubtitleCatConfig:
     # ---- 路径 ----
     input_excel: str = field(default="", metadata={
         "label": "输入 Excel", "kind": "file", "ext": ".xlsx",
+        "section": "路径",
         "tooltip": "番号清单，第一列一行一个，无需表头。",
     })
     target_dir: str = field(default="", metadata={
@@ -48,6 +49,7 @@ class SubtitleCatConfig:
     show_browser: bool = field(default=True, metadata={
         "label": "显示浏览器窗口", "kind": "bool",
         "row_group": "browser_opts",
+        "section": "参数",
     })
     browser_channel: str = field(default="msedge", metadata={
         "label": "浏览器", "kind": "choice",

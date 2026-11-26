@@ -1,3 +1,5 @@
+"""用于计时的小组件。"""
+
 import time
 import tkinter as tk
 from typing import Optional

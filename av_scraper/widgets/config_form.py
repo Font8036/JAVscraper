@@ -13,7 +13,11 @@ metadata 约定（与核心 config 保持一致）：
 - choices:     kind="choice" 时的选项
 - hidden:      True 时不渲染控件，collect 时从 base 实例保留原值
 - big:         kind="list" 时用高文本框
-- row_group:   相邻且同名的字段会排在同一水平行
+- row_group:   相邻且同名的字段会排在同一水平行，不写则单独一行
+- section:     字段所属的分组：  平铺（无框无字）："section": "" 或 "section": None
+                                无名框（有框无字）："section": "Null" （大小写不敏感，或者你可以随意指定一个固定保留字）
+                                具名框（有框有字）："section": "路径设置" （任何其他字符串，连续写两次同名也会切成两个框）
+                                隐式继承：完全不写 "section" 字段，默认跟上一个配置项共用同一个框
 - tooltip:     悬停提示文字
 """
 
@@ -49,20 +53,65 @@ class ConfigForm(ttk.Frame):
     def _build(self) -> None:
         visible = [f for f in fields(self._config_cls)
                    if not f.metadata.get("hidden")]
-        label_width = self._calc_label_width(visible)
 
-        for row_fields in self._group_row_fields(visible):
-            self._render_row(row_fields, label_width)
+        # 用于区分“没写 section”和“写了空值”
+        _MISSING = object()
+        
+        # 存放划分好的块：[(块类型, 块名称, [字段...]), ...]
+        # 块类型: "flat"(平铺), "untitled"(无名框), "titled"(具名框)
+        blocks = []
+        current_type = "flat"
+        current_name = ""
+        current_fields = []
+
+        for f in visible:
+            sec_val = f.metadata.get("section", _MISSING)
+            
+            if sec_val is not _MISSING:
+                # 只要显式写了 section，不管跟上一个一不一样，都强制切断上一个块
+                if current_fields:
+                    blocks.append((current_type, current_name, current_fields))
+                    current_fields = []
+                
+                # 判断是什么类型的 section
+                if sec_val is None or sec_val == "":
+                    current_type = "flat"
+                    current_name = ""
+                elif isinstance(sec_val, str) and sec_val.lower() == "null":
+                    current_type = "untitled"
+                    current_name = ""
+                else:
+                    current_type = "titled"
+                    current_name = str(sec_val)
+            
+            current_fields.append(f)
+
+        # 收尾：把最后一块加上
+        if current_fields:
+            blocks.append((current_type, current_name, current_fields))
+
+        # 开始渲染
+        for sec_type, sec_name, sec_fields in blocks:
+            if sec_type == "titled":
+                parent = ttk.LabelFrame(self, text=sec_name, padding=8)
+                parent.pack(fill="x", pady=6, padx=2)
+            elif sec_type == "untitled":
+                # 无名框：为了让边框看起来不那么突兀，text 设为空字符串
+                parent = ttk.LabelFrame(self, text="", padding=8)
+                parent.pack(fill="x", pady=6, padx=2)
+            else:
+                # 平铺：直接在 self 上渲染，不加框
+                parent = self
+
+            # 每个块独立计算对齐宽度
+            label_width = self._calc_label_width(sec_fields)
+
+            for row_fields in self._group_row_fields(sec_fields):
+                self._render_row(parent, row_fields, label_width)
 
     @staticmethod
     def _calc_label_width(visible_fields) -> int:
-        """只按"独立成行"的字段计算左侧预留宽度。
-
-        跳过：
-        - bool：文字在按钮右侧，不占左侧
-        - list：标签在顶部，不占左侧
-        - row_group 里的字段：和其它字段共用一行，标签不参与左对齐
-        """
+        """只按当前分组内“独立成行”的字段计算左侧预留宽度。"""
         max_w = 0
         for f in visible_fields:
             kind = f.metadata.get("kind", "str")
@@ -101,25 +150,25 @@ class ConfigForm(ttk.Frame):
             result.append(buf)
         return result
 
-    def _render_row(self, row_fields: list, label_width: int) -> None:
+    def _render_row(self, parent, row_fields: list, label_width: int) -> None:
         kinds = {f.metadata.get("kind", "str") for f in row_fields}
 
         if kinds == {"bool"}:
-            self._render_bool_row(row_fields, label_width)
+            self._render_bool_row(parent, row_fields)
             return
 
         if len(row_fields) == 1:
-            self._render_single(row_fields[0], label_width)
+            self._render_single(parent, row_fields[0], label_width)
             return
 
         if kinds == {"list"}:
-            self._render_list_row(row_fields)
+            self._render_list_row(parent, row_fields)
             return
 
-        self._render_mixed_row(row_fields, label_width)
+        self._render_mixed_row(parent, row_fields, label_width)
 
-    def _render_single(self, f, label_width: int) -> None:
-        row = ttk.Frame(self)
+    def _render_single(self, parent, f, label_width: int) -> None:
+        row = ttk.Frame(parent)
         row.pack(fill="x", pady=2)
         self._row_frames[f.name] = row
         kind = f.metadata.get("kind", "str")
@@ -127,14 +176,11 @@ class ConfigForm(ttk.Frame):
         tip = f.metadata.get("tooltip")
 
         if kind in ("str", "dir", "file", "save"):
-            # 长条输入框：标签右对齐到统一宽度，输入框起点对齐
             LabelWithTip(
                 row, label + ":", tip=tip,
                 width=label_width, anchor="e",
             ).pack(side="left")
         else:
-            # 短字段（bool 之外的 int / float / choice）：
-            # 缩进 2 字符，标签左对齐，与勾选框左边界一致
             ttk.Label(row, text="", width=_ROW_GROUP_INDENT).pack(side="left")
             LabelWithTip(
                 row, label + ":", tip=tip, anchor="w",
@@ -143,8 +189,8 @@ class ConfigForm(ttk.Frame):
         widget = self._make_widget(row, f)
         self._widgets[f.name] = (kind, widget)
 
-    def _render_bool_row(self, row_fields: list, label_width: int) -> None:
-        row = ttk.Frame(self)
+    def _render_bool_row(self, parent, row_fields: list) -> None:
+        row = ttk.Frame(parent)
         row.pack(fill="x", pady=2)
         ttk.Label(row, text="", width=_ROW_GROUP_INDENT).pack(side="left")
 
@@ -163,8 +209,8 @@ class ConfigForm(ttk.Frame):
             self._widgets[f.name] = ("bool", var)
             self._row_frames[f.name] = row
 
-    def _render_list_row(self, row_fields: list) -> None:
-        row = ttk.Frame(self)
+    def _render_list_row(self, parent, row_fields: list) -> None:
+        row = ttk.Frame(parent)
         row.pack(fill="x", pady=2)
         for i in range(len(row_fields)):
             row.columnconfigure(i, weight=1, uniform="list_group")
@@ -183,9 +229,8 @@ class ConfigForm(ttk.Frame):
             self._widgets[f.name] = ("list", txt)
             self._row_frames[f.name] = cell
 
-    def _render_mixed_row(self, row_fields: list, label_width: int) -> None:
-        """混合类型行：bool 显示为 Checkbutton，其它显示为 标签+控件。"""
-        row = ttk.Frame(self)
+    def _render_mixed_row(self, parent, row_fields: list, label_width: int) -> None:
+        row = ttk.Frame(parent)
         row.pack(fill="x", pady=2)
         ttk.Label(row, text="", width=_ROW_GROUP_INDENT).pack(side="left")
 

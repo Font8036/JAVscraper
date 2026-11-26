@@ -30,6 +30,7 @@ class JellyfinNfoConfig:
             "label": "输入 Excel", "kind": "file",
             "ext": ".xlsx",                   # ← 新增
             "tooltip": "刮削结果的 Excel（通常是 JavDB 插件生成的）。",
+            "section": "路径",
         }
     )
     movie_root: str = field(
@@ -51,6 +52,7 @@ class JellyfinNfoConfig:
             "label": "工作表序号", "kind": "int",
             "row_group": "excel_pos",
             "tooltip": "第几个工作表（从 1 开始）。",
+            "section": "Excel 解析",
         }
     )
     header_row: int = field(
@@ -82,7 +84,7 @@ class JellyfinNfoConfig:
     actor_columns: str = field(
         default="演员", metadata={
             "label": "演员", "kind": "str", "width": 8,
-            "row_group": "excel_cols",
+            "row_group": "excel_cols2",
             "tooltip": "支持多列，用 , 分隔。",
         }
     )
@@ -103,14 +105,14 @@ class JellyfinNfoConfig:
     personal_comment_columns: str = field(
         default="个人评论", metadata={
             "label": "个人评论", "kind": "str", "width": 12,
-            "row_group": "excel_cols2",
+            "row_group": "excel_cols3",
             "tooltip": "支持多列，用 , 分隔。",
         }
     )
     user_comment_columns: str = field(
         default="网友评论", metadata={
             "label": "网友评论", "kind": "str", "width": 12,
-            "row_group": "excel_cols2",
+            "row_group": "excel_cols3",
             "tooltip": "支持多列，用 , 分隔。",
         }
     )
@@ -122,6 +124,7 @@ class JellyfinNfoConfig:
             "choices": _NFO_MODE_CHOICES,
             "row_group": "nfo_opts",
             "tooltip": "每个视频生成同名 NFO；或统一生成 movie.nfo；或两者都生成。",
+            "section": "NFO 选项",
         }
     )
     cover_naming: str = field(

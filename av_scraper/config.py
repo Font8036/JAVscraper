@@ -141,7 +141,6 @@ class ProcessorConfig:
         metadata={
             "label": "移动到提取名子文件夹",
             "kind": "bool",
-            "row_group": "文件夹",
             "tooltip": "勾上后，每个番号建一个子文件夹，文件放进去。\n"
                 "取消则所有文件平铺到目标目录。\n考虑到同一个番号可能对应多个视频文件，且还可能会有字幕文件等，建议勾上。",
         },
@@ -151,8 +150,8 @@ class ProcessorConfig:
         metadata={
             "label": "视频命名方式",
             "kind": "choice",
+            "row_group": "video_naming",
             "choices": ["保留原文件名", "按提取码命名"],
-            "row_group": "processor_naming",   # ← 和附件那项排一行
             "tooltip": "保留原文件名 — 不动视频名（默认）\n"
                        "按提取码命名 — 视频改为「提取码.扩展名」",
         },
@@ -162,8 +161,8 @@ class ProcessorConfig:
         metadata={
             "label": "附件命名方式",
             "kind": "choice",
+            "row_group": "video_naming",
             "choices": ["保留原文件名", "按提取码命名", "跟随视频命名"],
-            "row_group": "processor_naming",
             "tooltip": "保留原文件名 — 不动附件名（默认）\n"
                        "按提取码命名 — 附件改为「提取码.扩展名」\n"
                        "跟随视频命名 — 附件与视频同名。\n"
@@ -179,7 +178,6 @@ class ProcessorConfig:
         metadata={
             "label": "多视频启用 -partN 后缀",
             "kind": "bool",
-            "row_group": "processor_naming",
             "tooltip": "同一番号下有多个视频时，自动重命名为「主干-part1」「主干-part2」…以便 Jellyfin 识别为同一部影片。\n"
                        "提取码命名时，主干为提取码。\n"
                        "保留原名时，主干为所有文件名的公共部分。\n"
